@@ -1,0 +1,49 @@
+{
+  "_note": "Урезанный реальный ответ /api/v1/offers/ от 2026-10-31: оставлены только поля, которые читает парсер",
+  "data": [
+    {
+      "id": 310635134,
+      "url": "https://www.olx.ro/d/oferta/vand-pny-rtx-3060-ti-8gb-IDl1oo6.html",
+      "title": "Vand PNY RTX 3060 Ti 8GB",
+      "created_time": "2026-10-14T11:23:02+03:00",
+      "description": "PNY NVIDIA GeForce RTX 3060 Ti 8GB GDDR6<br />\nFuncționează perfect, fără defecte!",
+      "params": [
+        {"key": "state", "name": "Stare", "type": "select", "value": {"key": "used", "label": "Utilizat"}},
+        {"key": "price", "name": "Pret", "type": "price", "value": {"value": 1600, "type": "price", "arranged": false, "negotiable": false, "currency": "RON", "label": "1 600 lei"}}
+      ],
+      "location": {"city": {"id": 1, "name": "Bucuresti", "normalized_name": "bucuresti"}, "region": {"id": 46, "name": "Bucuresti - Ilfov"}},
+      "photos": [
+        {"id": 3181027178, "link": "https://frankfurt.apollo.olxcdn.com:443/v1/files/pb72zjp6kr202-RO/image;s={width}x{height}"}
+      ],
+      "category": {"id": 2130, "type": "electronics"}
+    },
+    {
+      "id": 309253798,
+      "url": "https://www.olx.ro/d/oferta/placa-video-msi-nvidia-geforce-rtx-4070-ti-super-ventus-2x-oc-16gb-garantie-IDkWB2u.html",
+      "title": "Placă video MSI NVIDIA GeForce RTX 4070 Ti SUPER VENTUS 2X OC – 16GB  - garantie",
+      "created_time": "2026-09-11T22:46:49+03:00",
+      "description": "Vând placă video cu factura si garantie",
+      "params": [
+        {"key": "price", "name": "Pret", "type": "price", "value": {"value": 5100, "type": "arranged", "arranged": true, "negotiable": true, "currency": "RON", "label": "5 100 lei"}}
+      ],
+      "location": {"city": {"id": 81351, "name": "Craiova", "normalized_name": "craiova"}, "region": {"id": 8, "name": "Dolj"}},
+      "photos": [],
+      "category": {"id": 2130, "type": "electronics"}
+    },
+    {
+      "id": 300000001,
+      "url": "https://www.olx.ro/d/oferta/masa-birou-calculator-IDexample.html",
+      "title": "Masa birou calculator 120x55cm",
+      "created_time": "2021-12-07T14:44:58+02:00",
+      "description": "Dau gratuit",
+      "params": [
+        {"key": "price", "name": "Pret", "type": "price", "value": {"value": 0, "type": "free", "arranged": false, "negotiable": false, "currency": "RON", "label": "Gratuit"}}
+      ],
+      "location": {"city": {"id": 1, "name": "Bucuresti", "normalized_name": "bucuresti"}, "region": {"id": 46, "name": "Bucuresti - Ilfov"}},
+      "photos": [],
+      "category": {"id": 3078, "type": "goods"}
+    }
+  ],
+  "metadata": {"total_elements": 1000},
+  "links": {"next": {"href": "https://www.olx.ro/api/v1/offers?offset=40&limit=40"}}
+}
