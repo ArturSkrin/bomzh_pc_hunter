@@ -1,0 +1,49 @@
+from datetime import datetime, timezone
+
+import pytest
+
+from baraholka import db
+from baraholka.models import Listing
+from baraholka.web import app
+
+
+@pytest.fixture
+def client(tmp_path):
+    path = tmp_path / "w.db"
+    conn = db.connect(path)
+    db.insert_if_new(conn, Listing("olx", "1", "RTX 3060 <b>", "https://x/1", 900, posted_at=datetime.now(timezone.utc)))
+    conn.close()
+    app.config["DB_PATH"] = path
+    return app.test_client()
+
+
+def test_listings_page_escapes(client):
+    html = client.get("/").get_data(as_text=True)
+    assert "RTX 3060 &lt;b&gt;" in html and "900 lei" in html
+
+
+def test_queries_crud(client):
+    client.post("/queries", data={"text": "  Placa De Baza AM4 "})
+    assert "placa de baza am4" in client.get("/queries").get_data(as_text=True)
+    conn = db.connect(app.config["DB_PATH"])
+    qid = conn.execute("SELECT id FROM queries WHERE text = 'placa de baza am4'").fetchone()[0]
+    client.post(f"/queries/{qid}/toggle")
+    assert "placa de baza am4" not in db.enabled_queries(conn)
+    client.post(f"/queries/{qid}/delete")
+    assert conn.execute("SELECT count(*) FROM queries WHERE id = ?", (qid,)).fetchone()[0] == 0
+
+
+def test_settings_validation(client):
+    form = {k: v for k, v in db.DEFAULT_SETTINGS.items()}
+    r = client.post("/settings", data={**form, "poll_interval_min": "1"})
+    assert "error" in r.headers["Location"]
+    client.post("/settings", data={**form, "max_price_ron": "300", "llm_eval_prompt": "новый промпт"})
+    conn = db.connect(app.config["DB_PATH"])
+    assert db.get_setting(conn, "max_price_ron") == "300"
+    assert db.get_setting(conn, "llm_eval_prompt") == "новый промпт"
+
+
+def test_cross_site_post_and_foreign_host_blocked(client):
+    assert client.post("/queries", data={"text": "x"}, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert client.post("/queries", data={"text": "x"}, headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+    assert client.get("/", headers={"Host": "evil.example"}).status_code == 403

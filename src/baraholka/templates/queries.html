@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Поисковые запросы{% endblock %}
+{% block body %}
+<p class="muted">Каждый включённый запрос сборщик ищет на всех сайтах на каждом проходе. Пиши по-румынски, как ищут люди на OLX.</p>
+<form class="row" method="post">
+  <input name="text" placeholder="например: placa de baza am4" size="40" required>
+  <button class="primary">Добавить</button>
+</form>
+<table>
+  <tr><th>Запрос</th><th>Статус</th><th></th></tr>
+  {% for q in queries %}
+  <tr>
+    <td>{{ q.text }}</td>
+    <td><span class="pill">{{ 'включён' if q.enabled else 'выключен' }}</span></td>
+    <td>
+      <form class="inline" method="post" action="{{ url_for('toggle_query', qid=q.id) }}">
+        <button>{{ 'выключить' if q.enabled else 'включить' }}</button>
+      </form>
+      <form class="inline" method="post" action="{{ url_for('delete_query', qid=q.id) }}" onsubmit='return confirm({{ ("Удалить «" ~ q.text ~ "»?")|tojson }})'>
+        <button>удалить</button>
+      </form>
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endblock %}

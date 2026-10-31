@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Настройки{% endblock %}
+{% block body %}
+{% if saved %}<p>✅ Сохранено. Сборщик подхватит на следующем проходе.</p>{% endif %}
+{% if error %}<p class="err">⚠️ {{ error }}</p>{% endif %}
+<form method="post" style="display:grid; gap:18px; max-width:760px">
+  <label>Потолок цены, lei<br>
+    <input name="max_price_ron" value="{{ s.max_price_ron }}" inputmode="numeric" required>
+    <div class="muted">Дороже — отсеивается фильтром. Торговаться выше этой цены бот не сможет.</div>
+  </label>
+  <label>Интервал опроса, минут<br>
+    <input name="poll_interval_min" value="{{ s.poll_interval_min }}" inputmode="numeric" required>
+    <div class="muted">Не меньше 5, чтобы не долбить сайты.</div>
+  </label>
+  <label>Инструкция LLM: оценка лота<br>
+    <textarea name="llm_eval_prompt" rows="6" style="width:100%">{{ s.llm_eval_prompt }}</textarea>
+  </label>
+  <label>Инструкция LLM: переписка с продавцом<br>
+    <textarea name="llm_bargain_prompt" rows="6" style="width:100%">{{ s.llm_bargain_prompt }}</textarea>
+    <div class="muted">Жёсткие правила (без предоплаты, курьеров, телефона, адреса, выше потолка) работают в коде поверх любого промпта — отключить их отсюда нельзя.</div>
+  </label>
+  <div><button class="primary">Сохранить</button></div>
+</form>
+{% endblock %}

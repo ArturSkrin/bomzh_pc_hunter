@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Объявления{% endblock %}
+{% block body %}
+<form class="row" method="get">
+  <select name="status">
+    <option value="">все, кроме отсеянных и старых</option>
+    {% for key, label in statuses.items() %}
+      <option value="{{ key }}" {{ 'selected' if f.status == key }}>{{ label }} ({{ counts.get(key, 0) }})</option>
+    {% endfor %}
+  </select>
+  <select name="source">
+    <option value="">все сайты</option>
+    {% for s in sources %}<option {{ 'selected' if f.source == s }}>{{ s }}</option>{% endfor %}
+  </select>
+  <input name="q" value="{{ f.q }}" placeholder="поиск по тексту">
+  <input name="max_price" value="{{ f.max_price }}" placeholder="цена до, lei" size="10" inputmode="numeric">
+  <button class="primary">Показать</button>
+  <span class="muted">{{ lots|length }} шт.{% if lots|length == 300 %} (последние 300){% endif %}</span>
+</form>
+
+<table>
+  <tr><th></th><th>Объявление</th><th>Цена</th><th>Город</th><th>Добавлено</th><th>Статус</th><th></th></tr>
+  {% for l in lots %}
+  <tr>
+    <td>{% if l.thumb %}<img class="thumb" src="{{ l.thumb }}" loading="lazy" alt="">{% endif %}</td>
+    <td><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title }}</a><br><span class="muted">{{ l.source }}</span></td>
+    <td>{% if l.is_free %}<span class="free">бесплатно</span>{% elif l.price_ron is not none %}{{ l.price_ron|int }} lei{% else %}—{% endif %}</td>
+    <td>{{ l.city }}</td>
+    <td class="muted">{{ (l.posted_at or '')[:16]|replace('T', ' ') }}</td>
+    <td><span class="pill">{{ statuses.get(l.status, l.status) }}</span></td>
+    <td>
+      {% for st, label in [('negotiating', 'в работу'), ('skipped', 'пропустить')] if l.status != st %}
+      <form class="inline" method="post" action="{{ url_for('set_status', lid=l.id) }}">
+        <button name="status" value="{{ st }}">{{ label }}</button>
+      </form>
+      {% endfor %}
+    </td>
+  </tr>
+  {% else %}
+  <tr><td colspan="7" class="muted">Пусто. Сборщик ещё не ходил или всё отсеяно фильтром.</td></tr>
+  {% endfor %}
+</table>
+{% endblock %}

@@ -1,5 +1,7 @@
 """Дешёвый фильтр по правилам — до LLM, чтобы не жечь токены на мусор."""
 
+import re
+
 from .models import Listing
 
 # TODO: уточнить списки под то, что реально ищем
@@ -12,11 +14,18 @@ WANT_KEYWORDS = [
 BLOCK_KEYWORDS = ["defect", "pentru piese", "nu porneste", "cumpar", "schimb"]
 
 
+def _words(words: list[str]) -> re.Pattern:
+    # Целые слова: иначе «ram» ловится в «program», а «pc» — где попало
+    return re.compile(r"\b(?:" + "|".join(map(re.escape, words)) + r")\b")
+
+
+_WANT = _words(WANT_KEYWORDS)
+_BLOCK = _words(BLOCK_KEYWORDS)
+
+
 def passes_rules(lot: Listing, max_price_ron: float) -> bool:
     text = f"{lot.title} {lot.description}".lower()
-    if any(word in text for word in BLOCK_KEYWORDS):
-        return False
-    if not any(word in text for word in WANT_KEYWORDS):
+    if _BLOCK.search(text) or not _WANT.search(text):
         return False
     if lot.is_free:
         return True

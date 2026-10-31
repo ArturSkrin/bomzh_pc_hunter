@@ -1,18 +1,18 @@
 """Сборщик: раз в N минут обходит все источники, сохраняет новое, прогоняет через фильтр."""
 
 import logging
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from . import db
+from . import db, web
 from .config import load_settings
 from .filters import passes_rules
 from .sources import SOURCES
 from .tg import Bot
 
-QUERIES = ["placa video", "procesor", "calculator", "laptop", "ssd"]  # TODO: вынести, когда устаканится
 MAX_CARDS_PER_CYCLE = 20  # чтобы первый запуск не завалил чат
 
 log = logging.getLogger("baraholka")
@@ -20,9 +20,10 @@ log = logging.getLogger("baraholka")
 
 def collect_once(settings, conn) -> int:
     new = 0
+    max_price = float(db.get_setting(conn, "max_price_ron"))
     with httpx.Client(timeout=20, headers={"User-Agent": "Mozilla/5.0"}) as client:
         for name, fetch in SOURCES.items():
-            for query in QUERIES:
+            for query in db.enabled_queries(conn):
                 try:
                     lots = fetch(client, query)
                 except Exception:
@@ -33,7 +34,7 @@ def collect_once(settings, conn) -> int:
                     if lot_id is None:
                         continue
                     new += 1
-                    status = "new" if passes_rules(lot, settings.max_price_ron) else "rejected"
+                    status = "new" if passes_rules(lot, max_price) else "rejected"
                     conn.execute("UPDATE listings SET status = ? WHERE id = ?", (status, lot_id))
                 conn.commit()
                 time.sleep(settings.request_delay_sec)
@@ -68,11 +69,13 @@ def main() -> None:
     bot = Bot(settings.telegram_token, settings.telegram_chat_id) if settings.telegram_token else None
     if not bot:
         log.warning("TELEGRAM_BOT_TOKEN не задан — только собираю в базу")
+    threading.Thread(target=web.serve, args=(settings,), daemon=True).start()
+    log.info("Веб-морда: http://127.0.0.1:%d", settings.web_port)
     while True:
         log.info("Новых объявлений: %d", collect_once(settings, conn))
         if bot:
             send_new(bot, conn)
-        deadline = time.monotonic() + settings.poll_interval_min * 60
+        deadline = time.monotonic() + int(db.get_setting(conn, "poll_interval_min")) * 60
         while (left := deadline - time.monotonic()) > 0:
             if not bot:
                 time.sleep(left)
