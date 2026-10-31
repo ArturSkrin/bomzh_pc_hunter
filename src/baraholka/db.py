@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS listings (
     photos       TEXT NOT NULL DEFAULT '[]',
     posted_at    TEXT,
     seen_at      TEXT NOT NULL DEFAULT (datetime('now')),
-    -- new -> rejected | scored -> sent -> skipped | negotiating
+    -- new -> rejected | stale | sent | send_failed -> skipped | negotiating
     status       TEXT NOT NULL DEFAULT 'new',
     llm_score    REAL,
     llm_comment  TEXT,
