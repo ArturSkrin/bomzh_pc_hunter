@@ -48,6 +48,16 @@ CREATE TABLE IF NOT EXISTS settings (
     key    TEXT PRIMARY KEY,
     value  TEXT NOT NULL
 );
+
+-- История поиска из чата: запрос, план от LLM и отобранные результаты (JSON)
+CREATE TABLE IF NOT EXISTS searches (
+    id          INTEGER PRIMARY KEY,
+    request     TEXT NOT NULL,
+    plan        TEXT NOT NULL,
+    results     TEXT NOT NULL,
+    candidates  INTEGER NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 DEFAULT_QUERIES = ["placa video", "procesor", "calculator", "laptop", "ssd"]

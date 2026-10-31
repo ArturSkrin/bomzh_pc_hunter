@@ -22,7 +22,7 @@ def load_settings() -> Settings:
     return Settings(
         telegram_token=os.getenv("TELEGRAM_BOT_TOKEN", ""),
         telegram_chat_id=os.getenv("TELEGRAM_CHAT_ID", ""),
-        llm_model=os.getenv("LLM_MODEL", "anthropic/claude-haiku-5-5"),
+        llm_model=os.getenv("LLM_MODEL", "openai/gpt-5-mini"),
         request_delay_sec=float(os.getenv("REQUEST_DELAY_SEC", "3")),
         db_path=Path(os.getenv("DB_PATH", "data/baraholka.db")),
         web_port=int(os.getenv("WEB_PORT", "8080")),

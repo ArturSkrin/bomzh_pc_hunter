@@ -35,6 +35,7 @@
 <body>
 <nav>
   <b>🧰 Барахолка</b>
+  <a href="{{ url_for('search') }}" class="{{ 'on' if request.endpoint == 'search' }}">Поиск</a>
   <a href="{{ url_for('listings') }}" class="{{ 'on' if request.endpoint == 'listings' }}">Объявления</a>
   <a href="{{ url_for('queries') }}" class="{{ 'on' if request.endpoint == 'queries' }}">Поисковые запросы</a>
   <a href="{{ url_for('settings') }}" class="{{ 'on' if request.endpoint == 'settings' }}">Настройки и LLM</a>

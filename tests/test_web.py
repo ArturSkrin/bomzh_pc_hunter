@@ -47,3 +47,8 @@ def test_cross_site_post_and_foreign_host_blocked(client):
     assert client.post("/queries", data={"text": "x"}, headers={"Origin": "https://evil.example"}).status_code == 403
     assert client.post("/queries", data={"text": "x"}, headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
     assert client.get("/", headers={"Host": "evil.example"}).status_code == 403
+
+
+def test_search_page_renders(client):
+    html = client.get("/search").get_data(as_text=True)
+    assert "Искать" in html and "Пока пусто" in html

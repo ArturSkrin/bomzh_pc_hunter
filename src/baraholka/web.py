@@ -6,13 +6,14 @@ from urllib.parse import urlparse
 
 from flask import Flask, abort, g, redirect, render_template, request, url_for
 
-from . import db
+from . import agent, db
 
 app = Flask(__name__)
+log = logging.getLogger("baraholka")
 
 STATUSES = {
     "new": "новое", "sent": "в Telegram", "negotiating": "в работе", "skipped": "пропущено",
-    "rejected": "отсеяно фильтром", "stale": "старое", "send_failed": "не отправилось",
+    "search": "из поиска", "rejected": "отсеяно фильтром", "stale": "старое", "send_failed": "не отправилось",
 }
 # Нижняя граница — чтобы не долбить сайты чаще, чем раз в 5 минут
 INT_SETTINGS = {"max_price_ron": 1, "poll_interval_min": 5}
@@ -77,6 +78,30 @@ def set_status(lid):
     return redirect(request.referrer or url_for("listings"))
 
 
+@app.get("/search")
+def search():
+    rows = conn().execute("SELECT * FROM searches ORDER BY id DESC LIMIT 20").fetchall()
+    items = [dict(r, plan=json.loads(r["plan"]), results=json.loads(r["results"])) for r in rows]
+    return render_template("search.html", searches=items, error=request.args.get("error"))
+
+
+@app.post("/search")
+def do_search():
+    text = request.form.get("request", "").strip()
+    if not text:
+        return redirect(url_for("search"))
+    s = app.config["SETTINGS"]
+    try:
+        # shortcut: синхронно, страница ждёт ~1 минуту; фон + опрос — если станет мешать
+        sid = agent.run_search(conn(), text, s.llm_model, s.request_delay_sec,
+                               float(db.get_setting(conn(), "max_price_ron")))
+    except Exception as e:
+        log.exception("Поиск упал")
+        # Текст ошибки в URL не кладём — у LLM-библиотек туда может попасть кусок ключа
+        return redirect(url_for("search", error=type(e).__name__))
+    return redirect(url_for("search") + f"#s{sid}")
+
+
 @app.get("/queries")
 def queries():
     rows = conn().execute("SELECT * FROM queries ORDER BY id").fetchall()
@@ -125,6 +150,7 @@ def save_settings():
 
 def serve(settings) -> None:
     app.config["DB_PATH"] = settings.db_path
+    app.config["SETTINGS"] = settings
     logging.getLogger("werkzeug").setLevel(logging.WARNING)
     # shortcut: встроенный сервер Flask — норм для одного человека на localhost, не для интернета
     app.run(host="127.0.0.1", port=settings.web_port, use_reloader=False)

@@ -10,6 +10,7 @@ filter_float_price:to=0 — только «Gratuit». Первыми идут п
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from urllib.parse import urlencode
 
@@ -21,6 +22,8 @@ from ..models import Listing
 API = "https://www.olx.ro/api/v1/offers/"
 
 _page = None
+# Playwright sync привязан к потоку, а зовут нас и сборщик, и веб — весь браузер живёт в одном потоке
+_browser_thread = ThreadPoolExecutor(max_workers=1)
 
 
 def _browser_page():
@@ -32,9 +35,16 @@ def _browser_page():
     return _page
 
 
-def fetch(client: httpx.Client, query: str) -> list[Listing]:
+def fetch(client: httpx.Client, query: str, max_price: float | None = None) -> list[Listing]:
+    return _browser_thread.submit(_fetch, query, max_price).result(timeout=120)
+
+
+def _fetch(query: str, max_price: float | None) -> list[Listing]:
     # shortcut: только первая страница (40 свежих), хватает при опросе раз в 10–15 мин
-    url = API + "?" + urlencode({"query": query, "sort_by": "created_at:desc", "limit": 40})
+    params = {"query": query, "sort_by": "created_at:desc", "limit": 40}
+    if max_price is not None:
+        params["filter_float_price:to"] = int(max_price)
+    url = API + "?" + urlencode(params)
     res = _browser_page().evaluate(
         "async (url) => { const r = await fetch(url, {headers: {Accept: 'application/json'}});"
         " return {status: r.status, body: await r.text()}; }",
