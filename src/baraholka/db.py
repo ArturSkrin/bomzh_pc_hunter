@@ -64,7 +64,7 @@ DEFAULT_QUERIES = ["placa video", "procesor", "calculator", "laptop", "ssd"]
 
 DEFAULT_SETTINGS = {
     "max_price_ron": "1500",
-    "poll_interval_min": "12",
+    "poll_interval_min": "60",
     "llm_eval_prompt": (
         "Оцени лот для перепродажи/восстановления б/у железа: рыночная цена в Румынии, "
         "риск (неисправность, «для запчастей»), что можно вытащить ценного. Оценка 0–10 и одна строка почему."

@@ -10,7 +10,7 @@
   </label>
   <label>Интервал опроса, минут<br>
     <input name="poll_interval_min" value="{{ s.poll_interval_min }}" inputmode="numeric" required>
-    <div class="muted">Не меньше 5, чтобы не долбить сайты.</div>
+    <div class="muted">Не меньше 5, чтобы не долбить сайты. Каждый раз добавляется случайно ±10 минут.</div>
   </label>
   <label>Инструкция LLM: оценка лота<br>
     <textarea name="llm_eval_prompt" rows="6" style="width:100%">{{ s.llm_eval_prompt }}</textarea>

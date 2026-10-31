@@ -1,6 +1,7 @@
 """Сборщик: раз в N минут обходит все источники, сохраняет новое, прогоняет через фильтр."""
 
 import logging
+import random
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -14,6 +15,7 @@ from .sources import SOURCES
 from .tg import Bot
 
 MAX_CARDS_PER_CYCLE = 20  # чтобы первый запуск не завалил чат
+JITTER_MIN = 10  # интервал ± столько минут случайно — без ровного ритма
 
 log = logging.getLogger("baraholka")
 
@@ -75,7 +77,10 @@ def main() -> None:
         log.info("Новых объявлений: %d", collect_once(settings, conn))
         if bot:
             send_new(bot, conn)
-        deadline = time.monotonic() + int(db.get_setting(conn, "poll_interval_min")) * 60
+        pause_min = int(db.get_setting(conn, "poll_interval_min")) + random.uniform(-JITTER_MIN, JITTER_MIN)
+        pause_min = max(5, pause_min)
+        log.info("Следующий сбор через %.0f мин", pause_min)
+        deadline = time.monotonic() + pause_min * 60
         while (left := deadline - time.monotonic()) > 0:
             if not bot:
                 time.sleep(left)
