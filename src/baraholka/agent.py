@@ -4,6 +4,7 @@ import json
 import logging
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 
 import litellm
 
@@ -29,6 +30,15 @@ JUDGE_PROMPT = """Проверь объявления с барахолки на
 её характеристики — опирайся на них и так и напиши («по модели: ...»). Если проверить нельзя — verdict "unclear".
 Верни JSON: {{"matches": [{{"id": "...", "verdict": "match" | "unclear", "score": 0-10, "why": "коротко по-русски"}}]}}
 score учитывает и желательные требования, и цену."""
+
+
+# Формат ответа — в коде, а не в редактируемом промпте: правка промпта в вебе не должна ломать разбор
+EVAL_FORMAT = """
+
+Ответ — JSON: {"items": [{"id": "<id из входа>", "score": 0-10, "resale_ron": число или null,
+"comment": "по-русски, до 140 символов: что это, за сколько уйдёт, в чём выгода или риск"}]}
+— по элементу на каждое объявление из входа."""
+EVAL_BATCH = 30  # объявлений в одном запросе к LLM
 
 
 def llm_json(model: str, system: str, user: str) -> dict:
@@ -92,3 +102,45 @@ def run_search(conn: sqlite3.Connection, request: str, model: str, delay_sec: fl
     )
     conn.commit()
     return cur.lastrowid
+
+
+def evaluate_new(conn: sqlite3.Connection, model: str, prompt: str, min_score: float) -> int:
+    """Оценивает лоты 'new' глазами перекупа: >= min_score -> 'scored' (уйдут в Telegram), ниже -> 'rejected_llm'.
+    Старше суток — 'stale' без LLM. Возвращает, сколько оценено; пропущенные моделью ждут следующего прохода."""
+    day_ago = datetime.now(timezone.utc) - timedelta(days=1)
+    fresh = []
+    for r in conn.execute("SELECT * FROM listings WHERE status = 'new' ORDER BY id DESC").fetchall():
+        if r["posted_at"] and datetime.fromisoformat(r["posted_at"]) >= day_ago:
+            fresh.append(r)
+        else:
+            conn.execute("UPDATE listings SET status = 'stale' WHERE id = ?", (r["id"],))
+    conn.commit()
+
+    done = 0
+    for i in range(0, len(fresh), EVAL_BATCH):
+        batch = {str(r["id"]): r for r in fresh[i:i + EVAL_BATCH]}
+        brief = [
+            {"id": k, "title": r["title"], "price_lei": r["price_ron"], "free": bool(r["is_free"]),
+             "city": r["city"] or "?", "source": r["source"], "description": r["description"][:400]}
+            for k, r in batch.items()
+        ]
+        answer = llm_json(model, prompt + EVAL_FORMAT, json.dumps(brief, ensure_ascii=False))
+        for item in answer.get("items", []):
+            r = batch.get(str(item.get("id")))  # id только из нашей пачки
+            try:
+                score = max(0.0, min(10.0, float(item["score"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+            if r is None:
+                continue
+            comment = str(item.get("comment") or "")[:300]
+            resale = item.get("resale_ron")
+            if isinstance(resale, (int, float)) and resale > 0:
+                comment = f"~{resale:.0f} lei на перепродаже. {comment}"
+            conn.execute(
+                "UPDATE listings SET llm_score = ?, llm_comment = ?, status = ? WHERE id = ?",
+                (score, comment, "scored" if score >= min_score else "rejected_llm", r["id"]),
+            )
+            done += 1
+        conn.commit()
+    return done

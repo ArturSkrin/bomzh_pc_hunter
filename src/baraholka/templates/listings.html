@@ -13,10 +13,14 @@
   {% endfor %}
 {%- endmacro %}
 
+{% macro score(l) -%}
+  {% if l.llm_score is not none %}<span class="score s{{ (l.llm_score // 1)|int }}">{{ l.llm_score|round|int }}/10</span>{% endif %}
+{%- endmacro %}
+
 {% macro th(key, label) -%}
   {% set active = sort == key %}
   {# Даты по умолчанию — свежие сверху, текст и цену — по возрастанию #}
-  {% set first = 'desc' if key in ('found', 'posted') else 'asc' %}
+  {% set first = 'desc' if key in ('found', 'posted', 'score') else 'asc' %}
   {% set next_dir = ('asc' if desc else 'desc') if active else first %}
   <th><a class="sort{{ ' on' if active }}" href="{{ listings_url(sort=key, dir=next_dir) }}">{{ label }}{% if active %} {{ '↓' if desc else '↑' }}{% endif %}</a></th>
 {%- endmacro %}
@@ -59,9 +63,10 @@
       {% if l.photo %}<img src="{{ l.photo }}" loading="lazy" alt="">{% else %}<span class="muted">нет фото</span>{% endif %}
     </a>
     <div class="cb">
-      <div class="price">{{ price(l) }}</div>
+      <div class="price">{{ price(l) }} {{ score(l) }}</div>
       <a href="{{ l.url }}" target="_blank" rel="noopener" class="t">{{ l.title }}</a>
       <div class="muted">{{ l.city or '—' }} · {{ l.source }} · {{ (l.posted_at or '')[:10] }}</div>
+      {% if l.llm_comment %}<div class="muted">{{ l.llm_comment }}</div>{% endif %}
       <div class="foot"><span class="pill">{{ statuses.get(l.status, l.status) }}</span> {{ actions(l) }}</div>
     </div>
   </article>
@@ -73,14 +78,15 @@
 <table>
   <tr>
     <th></th>
-    {{ th('title', 'Объявление') }}{{ th('price', 'Цена') }}{{ th('city', 'Город') }}
+    {{ th('title', 'Объявление') }}{{ th('score', 'Оценка') }}{{ th('price', 'Цена') }}{{ th('city', 'Город') }}
     {{ th('posted', 'Добавлено') }}{{ th('status', 'Статус') }}
     <th></th>
   </tr>
   {% for l in lots %}
   <tr>
     <td>{% if l.thumb %}<img class="thumb" src="{{ l.thumb }}" loading="lazy" alt="">{% endif %}</td>
-    <td><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title }}</a><br><span class="muted">{{ l.source }}</span></td>
+    <td><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title }}</a><br><span class="muted">{{ l.source }}{% if l.llm_comment %} · {{ l.llm_comment }}{% endif %}</span></td>
+    <td>{{ score(l) }}</td>
     <td style="white-space:nowrap">{{ price(l) }}</td>
     <td>{{ l.city }}</td>
     <td class="muted">{{ (l.posted_at or '')[:16]|replace('T', ' ') }}</td>
@@ -88,7 +94,7 @@
     <td>{{ actions(l) }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="7" class="muted">Пусто. Сборщик ещё не ходил или всё отсеяно фильтром.</td></tr>
+  <tr><td colspan="8" class="muted">Пусто. Сборщик ещё не ходил или всё отсеяно фильтром.</td></tr>
   {% endfor %}
 </table>
 {% endif %}

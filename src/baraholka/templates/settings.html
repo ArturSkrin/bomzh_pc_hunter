@@ -13,8 +13,13 @@
     <div class="muted">Местное время через запятую, например «09:00, 14:00, 20:00». К каждому случайно ±10 минут.
       Между сборами бот только отвечает на кнопки в Telegram.</div>
   </label>
-  <label>Инструкция LLM: оценка лота<br>
-    <textarea name="llm_eval_prompt" rows="6" style="width:100%">{{ s.llm_eval_prompt }}</textarea>
+  <label>Порог оценки нейронки, 0–10<br>
+    <input name="llm_min_score" value="{{ s.llm_min_score }}" inputmode="numeric" required>
+    <div class="muted">Лоты с оценкой ниже — «отсеяно нейронкой», в Telegram не идут. В вебе их видно в фильтре статусов.</div>
+  </label>
+  <label>Инструкция LLM: оценка лота (кто ты, что ищем, как считать выгоду)<br>
+    <textarea name="llm_eval_prompt" rows="18" style="width:100%">{{ s.llm_eval_prompt }}</textarea>
+    <div class="muted">Формат ответа (оценка, цена перепродажи, комментарий) добавляется в коде — его тут писать не нужно.</div>
   </label>
   <label>Инструкция LLM: переписка с продавцом<br>
     <textarea name="llm_bargain_prompt" rows="6" style="width:100%">{{ s.llm_bargain_prompt }}</textarea>

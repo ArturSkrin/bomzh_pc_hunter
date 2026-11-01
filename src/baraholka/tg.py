@@ -51,7 +51,9 @@ def card(row: sqlite3.Row) -> tuple[str, dict]:
     price = "БЕСПЛАТНО" if row["is_free"] else f"{row['price_ron']:.0f} lei" if row["price_ron"] is not None else "цена не указана"
     text = (
         f"<b>{_esc(row['title'])}</b>\n"
-        f"💰 {price} · 📍 {_esc(row['city'])} · {row['source']}\n\n"
+        f"💰 {price} · 📍 {_esc(row['city'] or '?')} · {row['source']}\n"
+        + (f"⭐ <b>{row['llm_score']:.0f}/10</b> — {_esc(row['llm_comment'] or '')}\n" if row["llm_score"] is not None else "")
+        + "\n"
         # 500 символов описания держат подпись к фото в лимите Telegram (1024)
         f"{_esc(row['description'][:500])}\n\n"
         f"<a href=\"{_esc(row['url'])}\">Открыть объявление</a>"
@@ -72,5 +74,8 @@ def handle(conn: sqlite3.Connection, data: str) -> str:
         conn.execute("UPDATE listings SET status = 'skipped' WHERE id = ?", (int(lid),))
         conn.commit()
         return "Пропущено"
+    # «Уточнить» / «Торговаться» — лот в работу, чтобы был виден в панели
+    conn.execute("UPDATE listings SET status = 'negotiating' WHERE id = ?", (int(lid),))
+    conn.commit()
     # TODO: черновики на румынском через LLM + guards.check_draft
-    return "Черновики сообщений — следующий шаг, пока не готово"
+    return "Взял в работу (видно в панели). Черновики сообщений — следующий шаг"

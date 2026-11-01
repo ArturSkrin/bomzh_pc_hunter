@@ -12,11 +12,11 @@ app = Flask(__name__)
 log = logging.getLogger("baraholka")
 
 STATUSES = {
-    "new": "новое", "sent": "в Telegram", "negotiating": "в работе", "skipped": "пропущено",
-    "search": "из поиска", "rejected": "отсеяно фильтром", "stale": "старое", "send_failed": "не отправилось",
+    "new": "новое", "scored": "оценено", "sent": "в Telegram", "negotiating": "в работе", "skipped": "пропущено",
+    "search": "из поиска", "rejected": "отсеяно фильтром", "rejected_llm": "отсеяно нейронкой", "stale": "старое", "send_failed": "не отправилось",
 }
 # Нижняя граница — чтобы не долбить сайты чаще, чем раз в 5 минут
-INT_SETTINGS = {"max_price_ron": 1}
+INT_SETTINGS = {"max_price_ron": 1, "llm_min_score": 0}
 
 
 def conn():
@@ -48,6 +48,7 @@ def only_local():
 SORTS = {
     "found": ("id", "найдено"),
     "posted": ("julianday(posted_at)", "дата объявления"),
+    "score": ("llm_score", "оценка"),
     "price": ("price_ron", "цена"),
     "title": ("title COLLATE NOCASE", "название"),
     "city": ("city COLLATE NOCASE", "город"),
@@ -73,7 +74,7 @@ def listings():
     if f["status"]:
         where.append("status = ?"); params.append(f["status"])
     else:
-        where.append("status NOT IN ('rejected', 'stale')")
+        where.append("status NOT IN ('rejected', 'rejected_llm', 'stale')")
     if f["source"]:
         where.append("source = ?"); params.append(f["source"])
     if f["q"]:

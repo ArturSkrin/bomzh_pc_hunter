@@ -20,6 +20,9 @@ def make_db(tmp_path):
     db.insert_if_new(conn, Listing("olx", "fresh", "RTX <3060>", "https://x/?a=1&b=2", 900, posted_at=now))
     db.insert_if_new(conn, Listing("olx", "old", "GTX 1060", "https://x/old", 300, posted_at=now - timedelta(days=3)))
     db.insert_if_new(conn, Listing("olx", "free", "Calculator vechi", "https://x/free", 0, is_free=True, posted_at=now))
+    # В Telegram уходит только оценённое нейронкой
+    conn.execute("UPDATE listings SET status = 'scored', llm_score = 7, llm_comment = '~1200 lei, <маржа>'")
+    conn.commit()
     return conn
 
 
@@ -33,6 +36,7 @@ def test_card_escapes_html_and_has_buttons(tmp_path):
     text, markup = card(row)
     assert "&lt;3060&gt;" in text and "a=1&amp;b=2" in text
     assert "900 lei" in text
+    assert "7/10" in text and "&lt;маржа&gt;" in text  # оценка и экранированный комментарий
     assert [b["callback_data"] for b in markup["inline_keyboard"][0]] == [f"ask:{row['id']}", f"bargain:{row['id']}", f"skip:{row['id']}"]
 
     free = conn.execute("SELECT * FROM listings WHERE external_id = 'free'").fetchone()
@@ -54,3 +58,12 @@ def test_skip_button(tmp_path):
     lid = conn.execute("SELECT id FROM listings WHERE external_id = 'fresh'").fetchone()[0]
     assert handle(conn, f"skip:{lid}") == "Пропущено"
     assert status(conn, "fresh") == "skipped"
+
+
+def test_ask_and_bargain_move_to_work(tmp_path):
+    conn = make_db(tmp_path)
+    lid = conn.execute("SELECT id FROM listings WHERE external_id = 'fresh'").fetchone()[0]
+    for action in ("ask", "bargain"):
+        conn.execute("UPDATE listings SET status = 'sent' WHERE id = ?", (lid,))
+        assert "в работу" in handle(conn, f"{action}:{lid}").lower()
+        assert status(conn, "fresh") == "negotiating"

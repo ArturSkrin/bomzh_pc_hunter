@@ -8,12 +8,12 @@
 import json
 import re
 import time
-import unicodedata
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 import httpx
 
+from ..filters import fold as _fold
 from ..models import Listing
 
 BASE = "https://lajumate.ro"
@@ -86,8 +86,3 @@ def _dt(s: str) -> datetime:
     # Бывает и «2026-10-25 12:12:31» без зоны (местное), и «…Z»
     d = datetime.fromisoformat(s.replace("Z", "+00:00"))
     return d if d.tzinfo else d.replace(tzinfo=ZoneInfo("Europe/Bucharest"))
-
-
-def _fold(s: str) -> str:
-    """Нижний регистр без диакритики: «Placă» == «placa»."""
-    return "".join(c for c in unicodedata.normalize("NFKD", s.lower()) if not unicodedata.combining(c))

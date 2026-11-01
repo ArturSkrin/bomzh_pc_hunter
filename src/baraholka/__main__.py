@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
-from . import db, web
+from . import agent, db, web
 from .config import load_settings
 from .filters import passes_rules
 from .sources import SOURCES
@@ -40,14 +40,22 @@ def collect_once(settings, conn) -> int:
                     conn.execute("UPDATE listings SET status = ? WHERE id = ?", (status, lot_id))
                 conn.commit()
                 time.sleep(settings.request_delay_sec)
-    # TODO: LLM-оценка статуса 'new' перед отправкой
     return new
+
+
+def evaluate(settings, conn) -> None:
+    try:
+        n = agent.evaluate_new(conn, settings.llm_model, db.get_setting(conn, "llm_eval_prompt"),
+                               float(db.get_setting(conn, "llm_min_score")))
+        log.info("Оценено нейронкой: %d", n)
+    except Exception:
+        log.exception("Оценка нейронкой упала — лоты подождут следующего сбора")
 
 
 def send_new(bot: Bot, conn) -> None:
     day_ago = datetime.now(timezone.utc) - timedelta(days=1)
     sent = 0
-    for row in conn.execute("SELECT * FROM listings WHERE status = 'new' ORDER BY id DESC").fetchall():
+    for row in conn.execute("SELECT * FROM listings WHERE status = 'scored' ORDER BY llm_score DESC, id DESC").fetchall():
         if not row["posted_at"] or datetime.fromisoformat(row["posted_at"]) < day_ago:
             status = "stale"  # старьё и поднятые объявления не шлём
         elif sent >= MAX_CARDS_PER_CYCLE:
@@ -86,6 +94,7 @@ def main() -> None:
     log.info("Веб-морда: http://127.0.0.1:%d", settings.web_port)
     while True:
         log.info("Новых объявлений: %d", collect_once(settings, conn))
+        evaluate(settings, conn)
         if bot:
             send_new(bot, conn)
         at = next_run(db.parse_times(db.get_setting(conn, "collect_times")), datetime.now())
