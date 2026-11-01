@@ -54,3 +54,32 @@ def test_cross_site_post_and_foreign_host_blocked(client):
 def test_search_page_renders(client):
     html = client.get("/search").get_data(as_text=True)
     assert "Искать" in html and "Пока пусто" in html
+
+
+def titles_in_order(html, names):
+    return sorted(names, key=html.index)
+
+
+def test_sort_by_price_nulls_last(client):
+    conn = db.connect(app.config["DB_PATH"])
+    now = datetime.now(timezone.utc)
+    db.insert_if_new(conn, Listing("olx", "2", "Ieftin GTX", "https://x/2", 100, posted_at=now))
+    db.insert_if_new(conn, Listing("olx", "3", "Fara pret SSD", "https://x/3", None, posted_at=now))
+    names = ["Ieftin GTX", "RTX 3060", "Fara pret SSD"]
+    asc = client.get("/?sort=price&dir=asc").get_data(as_text=True)
+    assert titles_in_order(asc, names) == ["Ieftin GTX", "RTX 3060", "Fara pret SSD"]
+    desc = client.get("/?sort=price&dir=desc").get_data(as_text=True)
+    assert titles_in_order(desc, names) == ["RTX 3060", "Ieftin GTX", "Fara pret SSD"]
+
+
+def test_unknown_sort_is_ignored(client):
+    assert client.get("/?sort=id;DROP TABLE listings").status_code == 200
+    assert client.get("/?sort=price&dir=asc;--").status_code == 200
+
+
+def test_view_toggle_remembered(client):
+    r = client.get("/?view=grid")
+    assert 'class="grid"' in r.get_data(as_text=True)
+    assert "view=grid" in r.headers["Set-Cookie"]
+    assert 'class="grid"' in client.get("/").get_data(as_text=True)  # из cookie
+    assert 'class="grid"' not in client.get("/?view=table").get_data(as_text=True)

@@ -4,7 +4,7 @@ import json
 import logging
 from urllib.parse import urlparse
 
-from flask import Flask, abort, g, redirect, render_template, request, url_for
+from flask import Flask, abort, g, make_response, redirect, render_template, request, url_for
 
 from . import agent, db
 
@@ -44,9 +44,31 @@ def only_local():
             abort(403)
 
 
+# Колонка в URL -> выражение SQL; только из этого списка, в ORDER BY пользовательский текст не попадает
+SORTS = {
+    "found": ("id", "найдено"),
+    "posted": ("julianday(posted_at)", "дата объявления"),
+    "price": ("price_ron", "цена"),
+    "title": ("title COLLATE NOCASE", "название"),
+    "city": ("city COLLATE NOCASE", "город"),
+    "source": ("source", "сайт"),
+    "status": ("status", "статус"),
+}
+
+
+@app.template_global()
+def listings_url(**changes) -> str:
+    """Та же страница объявлений с текущими фильтрами, поменяв только переданное."""
+    return url_for("listings", **{**request.args.to_dict(), **changes})
+
+
 @app.get("/")
 def listings():
     f = {k: request.args.get(k, "") for k in ("status", "source", "q", "max_price")}
+    sort = request.args.get("sort") if request.args.get("sort") in SORTS else "found"
+    desc = request.args.get("dir", "desc") != "asc"
+    view = request.args.get("view") or request.cookies.get("view")
+    view = view if view in ("table", "grid") else "table"
     where, params = [], []
     if f["status"]:
         where.append("status = ?"); params.append(f["status"])
@@ -56,16 +78,28 @@ def listings():
         where.append("source = ?"); params.append(f["source"])
     if f["q"]:
         where.append("(title LIKE ? OR description LIKE ?)"); params += [f"%{f['q']}%"] * 2
-    if f["max_price"]:
+    if f["max_price"].replace(".", "", 1).isdigit():
         where.append("(is_free = 1 OR price_ron <= ?)"); params.append(float(f["max_price"]))
-    # shortcut: последние 300 без пагинации, хватит пока лотов немного
+    col = SORTS[sort][0]
+    # Пустые (без цены/даты) всегда в конце, в какую сторону ни сортируй
+    order = f"{col} IS NULL, {col} {'DESC' if desc else 'ASC'}, id DESC"
+    # shortcut: первые 300 без пагинации, хватит пока лотов немного
     rows = conn().execute(
-        f"SELECT * FROM listings WHERE {' AND '.join(where)} ORDER BY id DESC LIMIT 300", params
+        f"SELECT * FROM listings WHERE {' AND '.join(where)} ORDER BY {order} LIMIT 300", params
     ).fetchall()
-    lots = [dict(r, thumb=(json.loads(r["photos"]) or [""])[0].replace("800x600", "200x150")) for r in rows]
+    lots = []
+    for r in rows:
+        photo = (json.loads(r["photos"]) or [""])[0]
+        lots.append(dict(r, photo=photo, thumb=photo.replace("800x600", "200x150")))
     counts = dict(conn().execute("SELECT status, count(*) FROM listings GROUP BY status").fetchall())
     sources = [r[0] for r in conn().execute("SELECT DISTINCT source FROM listings")]
-    return render_template("listings.html", lots=lots, f=f, counts=counts, sources=sources, statuses=STATUSES)
+    resp = make_response(render_template(
+        "listings.html", lots=lots, f=f, counts=counts, sources=sources, statuses=STATUSES,
+        sorts=SORTS, sort=sort, desc=desc, view=view,
+    ))
+    if request.args.get("view") == view:
+        resp.set_cookie("view", view, max_age=365 * 24 * 3600, samesite="Lax")
+    return resp
 
 
 @app.post("/listing/<int:lid>/status")
