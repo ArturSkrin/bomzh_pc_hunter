@@ -15,7 +15,7 @@ from .sources import SOURCES
 from .tg import Bot
 
 MAX_CARDS_PER_CYCLE = 20  # чтобы первый запуск не завалил чат
-JITTER_MIN = 10  # интервал ± столько минут случайно — без ровного ритма
+JITTER_MIN = 10  # каждое время сбора ± столько минут случайно — без ровного ритма
 
 log = logging.getLogger("baraholka")
 
@@ -64,6 +64,17 @@ def send_new(bot: Bot, conn) -> None:
         conn.commit()
 
 
+def next_run(times, now: datetime) -> datetime:
+    """Ближайшее время сбора после now со случайным сдвигом; сегодня всё прошло — первое завтрашнее."""
+    for day in (0, 1):
+        for t in times:
+            at = datetime.combine(now.date() + timedelta(days=day), t)
+            at += timedelta(minutes=random.uniform(-JITTER_MIN, JITTER_MIN))
+            if at > now:
+                return at
+    raise AssertionError("недостижимо: завтрашние времена всегда позже now")
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     settings = load_settings()
@@ -77,11 +88,9 @@ def main() -> None:
         log.info("Новых объявлений: %d", collect_once(settings, conn))
         if bot:
             send_new(bot, conn)
-        pause_min = int(db.get_setting(conn, "poll_interval_min")) + random.uniform(-JITTER_MIN, JITTER_MIN)
-        pause_min = max(5, pause_min)
-        log.info("Следующий сбор через %.0f мин", pause_min)
-        deadline = time.monotonic() + pause_min * 60
-        while (left := deadline - time.monotonic()) > 0:
+        at = next_run(db.parse_times(db.get_setting(conn, "collect_times")), datetime.now())
+        log.info("Следующий сбор: %s", at.strftime("%d.%m %H:%M"))
+        while (left := (at - datetime.now()).total_seconds()) > 0:
             if not bot:
                 time.sleep(left)
                 continue

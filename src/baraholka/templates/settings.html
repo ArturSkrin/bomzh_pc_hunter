@@ -8,9 +8,10 @@
     <input name="max_price_ron" value="{{ s.max_price_ron }}" inputmode="numeric" required>
     <div class="muted">Дороже — отсеивается фильтром. Торговаться выше этой цены бот не сможет.</div>
   </label>
-  <label>Интервал опроса, минут<br>
-    <input name="poll_interval_min" value="{{ s.poll_interval_min }}" inputmode="numeric" required>
-    <div class="muted">Не меньше 5, чтобы не долбить сайты. Каждый раз добавляется случайно ±10 минут.</div>
+  <label>Время сбора<br>
+    <input name="collect_times" value="{{ s.collect_times }}" required>
+    <div class="muted">Местное время через запятую, например «09:00, 14:00, 20:00». К каждому случайно ±10 минут.
+      Между сборами бот только отвечает на кнопки в Telegram.</div>
   </label>
   <label>Инструкция LLM: оценка лота<br>
     <textarea name="llm_eval_prompt" rows="6" style="width:100%">{{ s.llm_eval_prompt }}</textarea>

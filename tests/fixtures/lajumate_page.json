@@ -1,0 +1,91 @@
+{
+ "_note": "Урезанный реальный __NEXT_DATA__.props.pageProps lajumate.ro от 2026-11-01; у второго лота цена обнулена для теста «бесплатно»",
+ "adsServer": [
+  {
+   "id": 17096644,
+   "title": "Pachet LAN + GPU + Diverse",
+   "slug": "pachet-lan-gpu-diverse",
+   "description": "",
+   "price": "600.00",
+   "currency": "lei",
+   "listed_at": "2026-10-25 12:12:31",
+   "city": {
+    "name": "Alexandria",
+    "county_code": "TR",
+    "county": {
+     "name": "Teleorman",
+     "code": "TR"
+    }
+   },
+   "images": [
+    {
+     "order": 1,
+     "is_main": true,
+     "temp": 0,
+     "name": "0.webp",
+     "path": "media/i/big/4/170/17096644_pachet-lan-gpu-diverse_0.webp"
+    },
+    {
+     "order": 2,
+     "is_main": false,
+     "temp": 0,
+     "name": "2.webp",
+     "path": "media/i/big/4/170/17096644_pachet-lan-gpu-diverse_2.webp"
+    }
+   ],
+   "mainImage": {
+    "order": 1,
+    "is_main": true,
+    "temp": 0,
+    "name": "0.webp",
+    "path": "media/i/big/4/170/17096644_pachet-lan-gpu-diverse_0.webp"
+   }
+  },
+  {
+   "id": 17092595,
+   "title": "Placa video Gigabyte AORUS GeForce GTX 1080 Ti Xtreme Edition, 11GB GDDR5X, 352",
+   "slug": "placa-video-gigabyte-aorus-geforce-gtx-1080-ti-xtreme-edition-11gb-gddr5x-352",
+   "description": "Dau gratuit<br>placa video veche",
+   "price": "0.00",
+   "currency": "lei",
+   "listed_at": "2026-10-21 14:44:19",
+   "city": {
+    "name": "Mioveni",
+    "county_code": "AG",
+    "county": {
+     "name": "Arges",
+     "code": "AG"
+    }
+   },
+   "images": [
+    {
+     "order": 1,
+     "is_main": true,
+     "temp": 0,
+     "name": "0.webp",
+     "path": "media/i/big/5/170/17092595_placa-video-gigabyte-aorus-geforce-gtx-1080-ti-xtreme-edition-11gb-gddr5x-352_0.webp"
+    },
+    {
+     "order": 2,
+     "is_main": false,
+     "temp": 0,
+     "name": "1.webp",
+     "path": "media/i/big/5/170/17092595_placa-video-gigabyte-aorus-geforce-gtx-1080-ti-xtreme-edition-11gb-gddr5x-352_1.webp"
+    }
+   ],
+   "mainImage": {
+    "order": 1,
+    "is_main": true,
+    "temp": 0,
+    "name": "0.webp",
+    "path": "media/i/big/5/170/17092595_placa-video-gigabyte-aorus-geforce-gtx-1080-ti-xtreme-edition-11gb-gddr5x-352_0.webp"
+   }
+  }
+ ],
+ "paginationServer": {
+  "currentPage": 1,
+  "totalPages": 1,
+  "totalAds": 18,
+  "adsPerPage": 28
+ }
+}

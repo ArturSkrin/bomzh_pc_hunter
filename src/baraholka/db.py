@@ -3,6 +3,7 @@
 import json
 import os
 import sqlite3
+from datetime import datetime, time as dtime
 from pathlib import Path
 
 from .models import Listing
@@ -64,7 +65,7 @@ DEFAULT_QUERIES = ["placa video", "procesor", "calculator", "laptop", "ssd"]
 
 DEFAULT_SETTINGS = {
     "max_price_ron": "1500",
-    "poll_interval_min": "60",
+    "collect_times": "09:00, 14:00, 20:00",  # местное время, через запятую
     "llm_eval_prompt": (
         "Оцени лот для перепродажи/восстановления б/у железа: рыночная цена в Румынии, "
         "риск (неисправность, «для запчастей»), что можно вытащить ценного. Оценка 0–10 и одна строка почему."
@@ -93,6 +94,14 @@ def connect(path: Path) -> sqlite3.Connection:
 
 def get_setting(conn: sqlite3.Connection, key: str) -> str:
     return conn.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()[0]
+
+
+def parse_times(text: str) -> list[dtime]:
+    """«09:00, 14:00» -> [time(9), time(14)]; кривой формат — ValueError."""
+    times = sorted(datetime.strptime(t.strip(), "%H:%M").time() for t in text.split(",") if t.strip())
+    if not times:
+        raise ValueError("нужно хотя бы одно время")
+    return times
 
 
 def enabled_queries(conn: sqlite3.Connection) -> list[str]:

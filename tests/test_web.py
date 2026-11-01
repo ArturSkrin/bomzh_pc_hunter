@@ -35,8 +35,10 @@ def test_queries_crud(client):
 
 def test_settings_validation(client):
     form = {k: v for k, v in db.DEFAULT_SETTINGS.items()}
-    r = client.post("/settings", data={**form, "poll_interval_min": "1"})
-    assert "error" in r.headers["Location"]
+    for bad in ({"max_price_ron": "0"}, {"collect_times": "9 утра"}, {"collect_times": ""}):
+        assert "error" in client.post("/settings", data={**form, **bad}).headers["Location"]
+    client.post("/settings", data={**form, "collect_times": "20:00,9:05"})
+    assert db.get_setting(db.connect(app.config["DB_PATH"]), "collect_times") == "09:05, 20:00"
     client.post("/settings", data={**form, "max_price_ron": "300", "llm_eval_prompt": "новый промпт"})
     conn = db.connect(app.config["DB_PATH"])
     assert db.get_setting(conn, "max_price_ron") == "300"

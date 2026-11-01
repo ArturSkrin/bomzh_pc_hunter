@@ -16,7 +16,7 @@ STATUSES = {
     "search": "из поиска", "rejected": "отсеяно фильтром", "stale": "старое", "send_failed": "не отправилось",
 }
 # Нижняя граница — чтобы не долбить сайты чаще, чем раз в 5 минут
-INT_SETTINGS = {"max_price_ron": 1, "poll_interval_min": 5}
+INT_SETTINGS = {"max_price_ron": 1}
 
 
 def conn():
@@ -143,6 +143,10 @@ def save_settings():
     for key, minimum in INT_SETTINGS.items():
         if not values[key].isdigit() or int(values[key]) < minimum:
             return redirect(url_for("settings", error=f"{key}: целое число не меньше {minimum}"))
+    try:
+        values["collect_times"] = ", ".join(t.strftime("%H:%M") for t in db.parse_times(values["collect_times"]))
+    except ValueError:
+        return redirect(url_for("settings", error="Время сбора: формат ЧЧ:ММ через запятую, например 09:00, 14:00, 20:00"))
     conn().executemany("UPDATE settings SET value = ? WHERE key = ?", [(v, k) for k, v in values.items()])
     conn().commit()
     return redirect(url_for("settings", saved=1))
