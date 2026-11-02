@@ -87,11 +87,16 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     settings = load_settings()
     conn = db.connect(settings.db_path)
-    bot = Bot(settings.telegram_token, settings.telegram_chat_id) if settings.telegram_token else None
+    panel = f"http://127.0.0.1:{settings.web_port}"
+    bot = Bot(settings.telegram_token, settings.telegram_chat_id, panel) if settings.telegram_token else None
     if not bot:
         log.warning("TELEGRAM_BOT_TOKEN не задан — только собираю в базу")
     threading.Thread(target=web.serve, args=(settings,), daemon=True).start()
-    log.info("Веб-морда: http://127.0.0.1:%d", settings.web_port)
+    log.info("Веб-морда: %s", panel)
+
+    def drafter(lid, goal, seller_text):
+        return agent.draft_reply(conn, settings.llm_model, lid, goal, seller_text)
+
     while True:
         log.info("Новых объявлений: %d", collect_once(settings, conn))
         evaluate(settings, conn)
@@ -104,7 +109,7 @@ def main() -> None:
                 time.sleep(left)
                 continue
             try:
-                bot.poll(conn, timeout=int(min(50, max(1, left))))
+                bot.poll(conn, timeout=int(min(50, max(1, left))), drafter=drafter)
             except httpx.HTTPError:
                 log.exception("Telegram недоступен")
                 time.sleep(5)

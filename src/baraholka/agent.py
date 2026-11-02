@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import litellm
 
-from . import db
+from . import db, guards
 from .sources import SOURCES
 
 log = logging.getLogger("baraholka")
@@ -144,3 +144,78 @@ def evaluate_new(conn: sqlite3.Connection, model: str, prompt: str, min_score: f
             done += 1
         conn.commit()
     return done
+
+
+# Жёсткая часть промпта торга: в коде, правка в вебе её не трогает. Сверху — редактируемый стиль (llm_bargain_prompt)
+DRAFT_RULES = """
+
+Ты пишешь от моего имени сообщение продавцу на барахолке. Я покупатель, я сам скопирую и отправлю.
+Задача: {goal}
+Длина: как живой человек в чате — 1–3 коротких предложения, до 300 символов, не больше 2–3 вопросов за раз.
+Потолок: никогда не предлагай и не соглашайся на цену выше {ceiling} lei.
+Нельзя:
+- предоплата, перевод на карту, IBAN, оплата по ссылке, OLX Livrare с онлайн-оплатой;
+- мой телефон, адрес, место и время встречи — это решаю сам; если продавец спрашивает — напиши об этом в note;
+- ссылки на «похожие объявления» и «цены на рынке» — данных о рынке у тебя нет;
+- выдумывать факты, дефекты или обстоятельства.
+Доставка: курьер — только с оплатой при получении (ramburs), лучше с проверкой посылки при курьере
+(cu deschiderea coletului). Если продавец в Rădăuți или рядом — могу забрать сам, но договариваюсь я.
+Ответ — JSON: {{"text": "сообщение на румынском", "note": "по-русски: перевод и что дальше, до 300 символов",
+"offer_ron": предложенная в сообщении цена числом или null}}"""
+
+GOALS = {
+    "ask": "уточни то, чего не хватает для решения: точная модель, конфигурация, всё ли работает, есть ли нюансы. "
+           "Цену пока не обсуждай.",
+    "bargain": "предложи цену ниже запрошенной, обоснуй коротко и честно тем, что известно о лоте.",
+    "reply": "ответь на последнее сообщение продавца и веди к сделке на нормальных условиях.",
+}
+
+
+def lot_ceiling(conn: sqlite3.Connection, row: sqlite3.Row) -> float:
+    """Потолок для лота: мой «торгуюсь до», цена продавца и общий потолок — берём меньшее."""
+    caps = [float(db.get_setting(conn, "max_price_ron"))]
+    if row["max_offer_ron"] is not None:
+        caps.append(row["max_offer_ron"])
+    if row["price_ron"] is not None and not row["is_free"]:
+        caps.append(row["price_ron"])
+    return min(caps)
+
+
+def draft_reply(conn: sqlite3.Connection, model: str, lid: int, goal: str, seller_text: str | None = None) -> sqlite3.Row:
+    """Сохраняет ответ продавца (если есть), пишет следующий черновик и прогоняет его через guards.
+    Нарушение — одна попытка исправить; не вышло — черновик сохраняется с флагами, чтобы я их видел."""
+    row = conn.execute("SELECT * FROM listings WHERE id = ?", (lid,)).fetchone()
+    if seller_text:
+        flags = [v.__dict__ for v in guards.scan_seller_message(seller_text)]
+        conn.execute("INSERT INTO messages (listing_id, direction, text, flags) VALUES (?, 'seller', ?, ?)",
+                     (lid, seller_text, json.dumps(flags, ensure_ascii=False)))
+    ceiling = lot_ceiling(conn, row)
+    history = [{"from": "я" if m["direction"] == "draft" else "продавец", "text": m["text"]}
+               for m in conn.execute("SELECT * FROM messages WHERE listing_id = ? ORDER BY id", (lid,))]
+    lot = {"title": row["title"], "price_lei": row["price_ron"], "free": bool(row["is_free"]), "city": row["city"],
+           "site": row["source"], "description": row["description"][:1500], "my_score": row["llm_comment"]}
+    system = db.get_setting(conn, "llm_bargain_prompt") + DRAFT_RULES.format(goal=GOALS[goal], ceiling=f"{ceiling:.0f}")
+    user = json.dumps({"listing": lot, "conversation": history}, ensure_ascii=False)
+
+    for attempt in range(2):
+        answer = llm_json(model, system, user)
+        text, note = str(answer.get("text") or "").strip(), str(answer.get("note") or "")[:500]
+        violations = guards.check_draft(text, ceiling, has_comparables=False)
+        offer = answer.get("offer_ron")
+        if isinstance(offer, (int, float)):
+            try:
+                guards.check_offer(offer, ceiling)
+            except ValueError as e:
+                violations.append(guards.Violation("ceiling", str(e)))
+        if not violations:
+            break
+        user += "\n\nТвой прошлый черновик нарушил правила, перепиши: " + "; ".join(
+            f"{v.rule}: {v.detail}" for v in violations)
+
+    cur = conn.execute(
+        "INSERT INTO messages (listing_id, direction, text, note, flags) VALUES (?, 'draft', ?, ?, ?)",
+        (lid, text, note, json.dumps([v.__dict__ for v in violations], ensure_ascii=False)),
+    )
+    conn.execute("UPDATE listings SET status = 'negotiating' WHERE id = ?", (lid,))
+    conn.commit()
+    return conn.execute("SELECT * FROM messages WHERE id = ?", (cur.lastrowid,)).fetchone()

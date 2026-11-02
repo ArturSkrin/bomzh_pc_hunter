@@ -6,6 +6,7 @@
 {%- endmacro %}
 
 {% macro actions(l) -%}
+  <a href="{{ url_for('listing', lid=l.id) }}">💬 торг</a>
   {% for st, label in [('negotiating', 'в работу'), ('skipped', 'пропустить')] if l.status != st %}
   <form class="inline" method="post" action="{{ url_for('set_status', lid=l.id) }}">
     <button name="status" value="{{ st }}">{{ label }}</button>

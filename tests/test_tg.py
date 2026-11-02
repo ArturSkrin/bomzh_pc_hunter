@@ -67,3 +67,40 @@ def test_ask_and_bargain_move_to_work(tmp_path):
         conn.execute("UPDATE listings SET status = 'sent' WHERE id = ?", (lid,))
         assert "в работу" in handle(conn, f"{action}:{lid}").lower()
         assert status(conn, "fresh") == "negotiating"
+
+
+class FakeApi:
+    """Bot с подменённым call: отдаёт заготовленные апдейты и записывает отправленное."""
+
+    def __init__(self, updates):
+        from baraholka.tg import Bot
+        self.bot = Bot("t", "42")
+        self.out = []
+        self.bot.call = lambda method, **p: updates if method == "getUpdates" else self.out.append((method, p))
+
+
+def test_buttons_and_replies_make_drafts(tmp_path):
+    import json
+    conn = make_db(tmp_path)
+    lid = conn.execute("SELECT id FROM listings WHERE external_id = 'fresh'").fetchone()[0]
+    calls = []
+
+    def drafter(l, goal, seller):
+        calls.append((l, goal, seller))
+        return {"text": "Bună <ziua>", "note": "уточнение", "flags": json.dumps([{"rule": "personal", "detail": "x"}])}
+
+    chat = {"id": 42}
+    api = FakeApi([
+        {"update_id": 1, "callback_query": {"id": "q", "data": f"ask:{lid}", "message": {"chat": chat, "message_id": 5}}},
+        {"update_id": 2, "message": {"chat": chat, "text": "Da, merge",
+                                     "reply_to_message": {"caption": f"... #lot{lid}"}}},
+        {"update_id": 3, "message": {"chat": chat, "text": "без reply"}},
+        {"update_id": 4, "message": {"chat": {"id": 666}, "text": "чужой", "reply_to_message": {"text": f"#lot{lid}"}}},
+    ])
+    api.bot.poll(conn, 0, drafter=drafter)
+
+    assert calls == [(lid, "ask", None), (lid, "reply", "Da, merge")]
+    texts = [p["text"] for m, p in api.out if m == "sendMessage"]
+    assert "<code>Bună &lt;ziua&gt;</code>" in texts[0] and f"#lot{lid}" in texts[0] and "⚠️ personal" in texts[0]
+    assert "reply" in texts[2] and len(texts) == 3  # без reply — подсказка; чужой чат — тишина
+    assert status(conn, "fresh") == "negotiating"

@@ -83,3 +83,20 @@ def test_view_toggle_remembered(client):
     assert "view=grid" in r.headers["Set-Cookie"]
     assert 'class="grid"' in client.get("/").get_data(as_text=True)  # из cookie
     assert 'class="grid"' not in client.get("/?view=table").get_data(as_text=True)
+
+
+def test_listing_page_and_draft(client, monkeypatch):
+    from baraholka import agent
+    from types import SimpleNamespace
+    app.config["SETTINGS"] = SimpleNamespace(llm_model="m")
+    monkeypatch.setattr(agent, "llm_json", lambda *a: {"text": "Bună ziua, mai este?", "note": "уточнение"})
+    conn = db.connect(app.config["DB_PATH"])
+    conn.execute("UPDATE settings SET value = '500' WHERE key = 'max_price_ron'")
+    conn.commit()
+    assert client.post("/listing/1/offer", data={"max_offer": "700"}).status_code == 302
+    html = client.get("/listing/1").get_data(as_text=True)
+    assert "RTX 3060 &lt;b&gt;" in html and "потолок сейчас: 500 lei" in html  # общий 500 меньше моих 700 и цены 900
+    client.post("/listing/1/draft", data={"goal": "reply", "seller": "Da, <merge>"})
+    html = client.get("/listing/1").get_data(as_text=True)
+    assert "Bună ziua, mai este?" in html and "Da, &lt;merge&gt;" in html
+    assert client.post("/listing/1/draft", data={"goal": "hack"}).status_code == 400

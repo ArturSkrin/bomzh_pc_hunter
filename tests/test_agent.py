@@ -72,3 +72,36 @@ def test_evaluate_new(tmp_path, monkeypatch):
     assert st["3"][0] == "new"  # пропущенное ждёт следующего прохода
     assert st["4"][0] == "stale"  # старое в LLM не шлём
     assert len(seen["user"]) == 3 and "JSON" in seen["system"] and seen["system"].startswith("ты перекуп")
+
+
+def test_draft_reply_retries_and_keeps_ceiling(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "d.db")
+    lid = db.insert_if_new(conn, Listing("olx", "1", "Unitate PC i5", "https://x/1", 250, city="Suceava"))
+    conn.execute("UPDATE listings SET max_offer_ron = 180 WHERE id = ?", (lid,))
+    seen = []
+    answers = iter([
+        {"text": "Vă dau 200 de lei, plătesc în avans.", "note": "плохой", "offer_ron": 200},
+        {"text": "Bună ziua! Ați lua 170 lei? Pot și prin curier, ramburs.", "note": "предложил 170", "offer_ron": 170},
+    ])
+
+    def fake_llm(model, system, user):
+        seen.append((system, user))
+        return next(answers)
+
+    monkeypatch.setattr(agent, "llm_json", fake_llm)
+    m = agent.draft_reply(conn, "m", lid, "bargain", seller_text="Trimit prin Fan Courier, avans 50 lei")
+
+    assert m["text"].startswith("Bună ziua") and json.loads(m["flags"]) == []
+    assert "180 lei" in seen[0][0]  # потолок — моё «до», а не цена продавца
+    assert "перепиши" in seen[1][1] and "payment" in seen[1][1]  # нарушения отданы модели на исправление
+    seller = conn.execute("SELECT * FROM messages WHERE direction = 'seller'").fetchone()
+    assert {f["rule"] for f in json.loads(seller["flags"])} == {"payment"}  # «avans» от продавца — красный флаг
+    assert conn.execute("SELECT status FROM listings WHERE id = ?", (lid,)).fetchone()[0] == "negotiating"
+
+
+def test_draft_reply_saves_flags_if_still_bad(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "d.db")
+    lid = db.insert_if_new(conn, Listing("olx", "1", "RAM DDR4", "https://x/1", 100))
+    monkeypatch.setattr(agent, "llm_json", lambda *a: {"text": "Ne vedem pe strada Unirii", "offer_ron": 150})
+    m = agent.draft_reply(conn, "m", lid, "ask")
+    assert {f["rule"] for f in json.loads(m["flags"])} == {"personal", "ceiling"}

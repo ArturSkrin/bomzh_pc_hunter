@@ -113,6 +113,43 @@ def set_status(lid):
     return redirect(request.referrer or url_for("listings"))
 
 
+@app.get("/listing/<int:lid>")
+def listing(lid):
+    row = conn().execute("SELECT * FROM listings WHERE id = ?", (lid,)).fetchone()
+    if not row:
+        abort(404)
+    msgs = [dict(m, flags=json.loads(m["flags"]))
+            for m in conn().execute("SELECT * FROM messages WHERE listing_id = ? ORDER BY id", (lid,))]
+    return render_template(
+        "listing.html", l=dict(row, photos=json.loads(row["photos"])), msgs=msgs, statuses=STATUSES,
+        ceiling=agent.lot_ceiling(conn(), row), error=request.args.get("error"),
+    )
+
+
+@app.post("/listing/<int:lid>/offer")
+def set_max_offer(lid):
+    value = request.form.get("max_offer", "").strip()
+    conn().execute("UPDATE listings SET max_offer_ron = ? WHERE id = ?",
+                   (float(value) if value.replace(".", "", 1).isdigit() else None, lid))
+    conn().commit()
+    return redirect(url_for("listing", lid=lid))
+
+
+@app.post("/listing/<int:lid>/draft")
+def make_draft(lid):
+    goal = request.form.get("goal", "reply")
+    seller = request.form.get("seller", "").strip() or None
+    if goal not in agent.GOALS:
+        abort(400)
+    try:
+        # shortcut: синхронно, ~10 секунд на ответ модели
+        agent.draft_reply(conn(), app.config["SETTINGS"].llm_model, lid, goal, seller)
+    except Exception as e:
+        log.exception("Черновик не написался")
+        return redirect(url_for("listing", lid=lid, error=type(e).__name__))
+    return redirect(url_for("listing", lid=lid) + "#end")
+
+
 @app.get("/search")
 def search():
     rows = conn().execute("SELECT * FROM searches ORDER BY id DESC LIMIT 20").fetchall()

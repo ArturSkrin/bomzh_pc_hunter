@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS listings (
     status       TEXT NOT NULL DEFAULT 'new',
     llm_score    REAL,
     llm_comment  TEXT,
+    max_offer_ron REAL,  -- «торгуюсь до» для этого лота; пусто — до цены продавца
     UNIQUE (source, external_id)
 );
 
@@ -35,6 +36,8 @@ CREATE TABLE IF NOT EXISTS messages (
     listing_id  INTEGER NOT NULL REFERENCES listings(id),
     direction   TEXT NOT NULL CHECK (direction IN ('draft', 'seller')),
     text        TEXT NOT NULL,
+    note        TEXT NOT NULL DEFAULT '',  -- для черновика: перевод и пояснение по-русски
+    flags       TEXT NOT NULL DEFAULT '[]',  -- нарушения жёстких правил (JSON), для продавца — красные флаги
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -60,6 +63,12 @@ CREATE TABLE IF NOT EXISTS searches (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 """
+
+MIGRATIONS = [
+    ("listings", "max_offer_ron", "REAL"),
+    ("messages", "note", "TEXT NOT NULL DEFAULT ''"),
+    ("messages", "flags", "TEXT NOT NULL DEFAULT '[]'"),
+]
 
 # Как пишут продавцы на OLX; «calculator» в одиночку ловит и калькуляторы, поэтому только в связках
 DEFAULT_QUERIES = [
@@ -99,8 +108,9 @@ score 0–10 — насколько выгодно купить. Прикинь 
 стоит спросить; ≤3 — рынок или дороже. В комментарии назови сценарий: сборка / перепродажа / хоумлаб.
 Подозрительно дешёвая дорогая вещь (свежая RTX за копейки) — снижай: часто мошенники.""",
     "llm_bargain_prompt": (
-        "Пиши продавцу на румынском, коротко и вежливо, без сленга. Сначала уточни модель, конфиг и "
-        "рабочее ли. Торгуйся только реальными аргументами: состояние, похожие объявления."
+        "Пиши продавцу на румынском, коротко и вежливо, без сленга и смайлов, как обычный покупатель с OLX. "
+        "Сначала уточни модель, конфиг и рабочее ли. Торгуйся спокойно, реальными аргументами: состояние, "
+        "возраст железа, то, что продавец сам написал. Предлагай цену с запасом для торга, но без наглости."
     ),
 }
 
@@ -111,6 +121,10 @@ def connect(path: Path) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")  # веб читает, пока сборщик пишет
     conn.executescript(SCHEMA)
+    # Колонки, добавленные после первого запуска: CREATE TABLE IF NOT EXISTS их в старую базу не добавит
+    for table, col, decl in MIGRATIONS:
+        if col not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     # Первый запуск: старые MAX_PRICE_RON / POLL_INTERVAL_MIN из .env становятся начальными значениями
     seeds = {k: os.getenv(k.upper(), v) for k, v in DEFAULT_SETTINGS.items()}
     conn.executemany("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", seeds.items())

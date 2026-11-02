@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block title %}{{ l.title }}{% endblock %}
+{% block body %}
+<p><a href="{{ url_for('listings') }}">← к объявлениям</a></p>
+<div class="lot">
+  {% if l.photos %}<a href="{{ l.url }}" target="_blank" rel="noopener"><img src="{{ l.photos[0] }}" alt=""></a>{% endif %}
+  <div>
+    <h2 style="margin:0 0 6px">{{ l.title }}</h2>
+    <div class="price">
+      {% if l.is_free %}<span class="free">бесплатно</span>{% elif l.price_ron is not none %}{{ l.price_ron|int }} lei{% else %}цена не указана{% endif %}
+      {% if l.llm_score is not none %}<span class="score s{{ (l.llm_score // 1)|int }}">{{ l.llm_score|round|int }}/10</span>{% endif %}
+    </div>
+    <div class="muted">{{ l.city or '—' }} · {{ l.source }} · {{ (l.posted_at or '')[:16]|replace('T', ' ') }} ·
+      <span class="pill">{{ statuses.get(l.status, l.status) }}</span></div>
+    {% if l.llm_comment %}<p>{{ l.llm_comment }}</p>{% endif %}
+    <p><a href="{{ l.url }}" target="_blank" rel="noopener">Открыть на {{ l.source }} ↗</a></p>
+    <form class="row" method="post" action="{{ url_for('set_max_offer', lid=l.id) }}">
+      <label>Торгуюсь до <input name="max_offer" value="{{ l.max_offer_ron|int if l.max_offer_ron is not none else '' }}"
+        size="6" inputmode="numeric" placeholder="lei"></label>
+      <button>Сохранить</button>
+      <span class="muted">потолок сейчас: {{ ceiling|int }} lei (меньшее из: моё «до», цена продавца, общий потолок)</span>
+    </form>
+  </div>
+</div>
+<details><summary class="muted">Описание</summary><p style="white-space:pre-wrap">{{ l.description }}</p></details>
+
+<h3>Переписка</h3>
+{% for m in msgs %}
+<div class="msg {{ m.direction }}">
+  <div class="muted">{{ '🤖 черновик' if m.direction == 'draft' else '🧑 продавец' }} · {{ m.created_at }} UTC</div>
+  <div class="txt">{{ m.text }}</div>
+  {% if m.note %}<div class="muted">{{ m.note }}</div>{% endif %}
+  {% for f in m.flags %}<div class="err">⚠️ {{ f.rule }}: {{ f.detail }}</div>{% endfor %}
+  {% if m.direction == 'draft' %}<button type="button" class="copy">Копировать</button>{% endif %}
+</div>
+{% else %}
+<p class="muted">Пока пусто. Начни с уточнения — нейронка напишет первое сообщение продавцу.</p>
+{% endfor %}
+<span id="end"></span>
+
+{% if error %}<p class="err">⚠️ Черновик не получился ({{ error }}). Подробности — в логе бота.</p>{% endif %}
+
+<form method="post" action="{{ url_for('make_draft', lid=l.id) }}" class="draft" style="display:grid; gap:8px">
+  <textarea name="seller" rows="3" placeholder="Ответ продавца — вставь сюда, нейронка предложит следующую реплику"></textarea>
+  <div class="row" style="margin:0">
+    <button class="primary" name="goal" value="reply">Ответить продавцу</button>
+    <button name="goal" value="ask">❓ Уточнить</button>
+    <button name="goal" value="bargain">🤝 Предложить цену</button>
+    <span class="muted wait" hidden>Пишу черновик… секунд 10–20.</span>
+  </div>
+</form>
+<p class="muted">Отправляешь сам. Курьер — только ramburs, никакой предоплаты; адрес, телефон и встречу решаешь ты.</p>
+
+<style>
+  .lot { display:grid; grid-template-columns:minmax(0, 320px) 1fr; gap:20px; margin-bottom:12px; }
+  .lot img { width:100%; border-radius:8px; }
+  .lot .price { font-size:22px; font-weight:700; margin-bottom:4px; }
+  .msg { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin-bottom:10px; max-width:720px; }
+  .msg.seller { margin-left:auto; }
+  .msg .txt { white-space:pre-wrap; margin:6px 0; }
+  @media (max-width: 640px) { .lot { grid-template-columns:1fr; } }
+</style>
+<script>
+  for (const b of document.querySelectorAll("button.copy")) {
+    b.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(b.parentElement.querySelector(".txt").textContent);
+      b.textContent = "Скопировано ✓";
+    });
+  }
+  document.querySelector("form.draft").addEventListener("submit", e => {
+    // Без текста продавца «Ответить» бессмысленно — подсказываем, а не шлём пустое
+    if (e.submitter.value === "reply" && !e.target.seller.value.trim()) {
+      e.preventDefault(); e.target.seller.focus(); return;
+    }
+    // disabled на кнопке выбросил бы её goal из формы — прячем остальные после отправки
+    setTimeout(() => e.target.querySelectorAll("button").forEach(b => b.disabled = true));
+    e.target.querySelector(".wait").hidden = false;
+  });
+</script>
+{% endblock %}

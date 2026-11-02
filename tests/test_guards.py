@@ -24,13 +24,29 @@ def test_price_in_text_over_ceiling():
 
 @pytest.mark.parametrize("text", [
     "Pot plăti în avans dacă vreți",
-    "Trimiteți prin curier?",
-    "Merge și cu Fan Courier",
     "Îmi dați un link de plată?",
+    "Plătesc prin OLX livrare",
     "Fac transfer bancar",
 ])
 def test_payment_blocked(text):
     assert "payment" in rules(text)
+
+
+def test_refusing_prepayment_is_fine():
+    assert rules("Nu pot plăti în avans, doar ramburs.") == set()
+    assert rules("Prefer fără avans.") == set()
+    assert "payment" in rules("Nu e problemă, plătesc avans.")  # отрицание в другой фразе не спасает
+
+
+def test_courier_only_cash_on_delivery():
+    assert "courier" in rules("Trimiteți prin curier?")
+    assert "courier" in rules("Merge și cu Fan Courier")
+    assert rules("Puteți trimite prin curier cu plata ramburs, cu deschiderea coletului?") == set()
+    assert rules("Trimiteți cu Sameday, plata la livrare?") == set()
+
+
+def test_price_with_de():
+    assert "ceiling" in rules("Vă dau 1500 de lei.")
 
 
 @pytest.mark.parametrize("text", [
@@ -49,5 +65,9 @@ def test_market_claim_needs_comparables():
 
 
 def test_seller_scam_flags():
-    flags = {v.rule for v in scan_seller_message("Trimit cu curier, plătiți aici: https://olx-plata.xyz")}
+    flags = {v.rule for v in scan_seller_message("Trimit cu curier, plata în avans aici: https://olx-plata.xyz")}
     assert flags == {"payment", "link"}
+
+
+def test_seller_courier_is_fine():
+    assert scan_seller_message("Pot trimite prin Fan Courier, ramburs") == []
