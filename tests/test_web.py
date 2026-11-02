@@ -12,6 +12,8 @@ def client(tmp_path):
     path = tmp_path / "w.db"
     conn = db.connect(path)
     db.insert_if_new(conn, Listing("olx", "1", "RTX 3060 <b>", "https://x/1", 900, posted_at=datetime.now(timezone.utc)))
+    conn.execute("UPDATE listings SET status = 'scored'")
+    conn.commit()
     conn.close()
     app.config["DB_PATH"] = path
     return app.test_client()
@@ -65,6 +67,8 @@ def test_sort_by_price_nulls_last(client):
     now = datetime.now(timezone.utc)
     db.insert_if_new(conn, Listing("olx", "2", "Ieftin GTX", "https://x/2", 100, posted_at=now))
     db.insert_if_new(conn, Listing("olx", "3", "Fara pret SSD", "https://x/3", None, posted_at=now))
+    conn.execute("UPDATE listings SET status = 'sent'")
+    conn.commit()
     names = ["Ieftin GTX", "RTX 3060", "Fara pret SSD"]
     asc = client.get("/?sort=price&dir=asc").get_data(as_text=True)
     assert titles_in_order(asc, names) == ["Ieftin GTX", "RTX 3060", "Fara pret SSD"]
@@ -100,3 +104,10 @@ def test_listing_page_and_draft(client, monkeypatch):
     html = client.get("/listing/1").get_data(as_text=True)
     assert "Bună ziua, mai este?" in html and "Da, &lt;merge&gt;" in html
     assert client.post("/listing/1/draft", data={"goal": "hack"}).status_code == 400
+
+
+def test_unscored_hidden_by_default(client):
+    conn = db.connect(app.config["DB_PATH"])
+    db.insert_if_new(conn, Listing("olx", "9", "Stabilizator neevaluat", "https://x/9", 100))
+    assert "neevaluat" not in client.get("/").get_data(as_text=True)
+    assert "neevaluat" in client.get("/?status=new").get_data(as_text=True)

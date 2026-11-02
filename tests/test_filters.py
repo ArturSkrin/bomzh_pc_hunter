@@ -29,3 +29,14 @@ def test_block_price_and_free():
     assert not passes_rules(lot("Placa video defecta"), 1500)
     assert not passes_rules(lot("Laptop Dell", price=2000), 1500)
     assert passes_rules(lot("Unitate PC i5", price=0, free=True), 1500)
+
+
+def test_pawnshops_laptop_parts_and_desc_only_blocked():
+    for title in ("NDP Amanet NON-STOP Bld.Iuliu Maniu 69 Unitate PC i5 (41593)",
+                  "Ecran/ diplay Touch laptop HP Envy 13 ba0505sa", "Tastatura laptop Lenovo", "Baterie laptop Dell",
+                  "Carcasa completa Laptop Acer Aspire V3-772G", "Placa de baza laptop Asus"):
+        assert not passes_rules(lot(title), 1500), title
+    assert not passes_rules(lot("Stabilizator Insta360 Flow", "merge cu telefon, laptop sau pc"), 1500)
+    # те же слова у ПК — норм
+    for title in ("Carcasa Lian Li O11 MINI / Kit ITX", "Kit complet intel + placa video + baterie bios", "Placa de baza AM4"):
+        assert passes_rules(lot(title), 1500), title

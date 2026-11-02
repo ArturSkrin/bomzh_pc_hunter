@@ -35,10 +35,14 @@ score учитывает и желательные требования, и це
 # Формат ответа — в коде, а не в редактируемом промпте: правка промпта в вебе не должна ломать разбор
 EVAL_FORMAT = """
 
-Ответ — JSON: {"items": [{"id": "<id из входа>", "score": 0-10, "resale_ron": число или null,
-"comment": "по-русски, до 140 символов: что это, за сколько уйдёт, в чём выгода или риск"}]}
-— по элементу на каждое объявление из входа."""
+Ответ — JSON: {"items": [{"id": "<id из входа>", "kind": "pc" | "laptop" | "part" | "other", "score": 0-10,
+"resale_ron": число или null, "comment": "..."}]} — по элементу на каждое объявление из входа.
+kind: pc — готовый компьютер (системник, мини-ПК, сервер, рабочая станция); laptop — ноутбук;
+part — комплектующие (процессор, материнка, память, видеокарта, диск, БП, связки и лоты); other — всё остальное.
+Только для pc: resale_ron и comment (по-русски, до 140 символов: конфиг, за сколько уйдёт, в чём выгода или риск).
+Для остальных resale_ron = null, comment = "" — только оценка, без пояснений."""
 EVAL_BATCH = 30  # объявлений в одном запросе к LLM
+LAPTOP_MIN_SCORE = 10  # ноутбуками почти не занимаюсь — только если прям подарок
 
 
 def llm_json(model: str, system: str, user: str) -> dict:
@@ -133,13 +137,18 @@ def evaluate_new(conn: sqlite3.Connection, model: str, prompt: str, min_score: f
                 continue
             if r is None:
                 continue
-            comment = str(item.get("comment") or "")[:300]
-            resale = item.get("resale_ron")
-            if isinstance(resale, (int, float)) and resale > 0:
-                comment = f"~{resale:.0f} lei на перепродаже. {comment}"
+            kind = item.get("kind")
+            comment, threshold = "", min_score
+            if kind == "pc":
+                comment = str(item.get("comment") or "")[:300]
+                resale = item.get("resale_ron")
+                if isinstance(resale, (int, float)) and resale > 0:
+                    comment = f"~{resale:.0f} lei на перепродаже. {comment}"
+            elif kind == "laptop":
+                comment, threshold = f"ноутбук — беру только от {LAPTOP_MIN_SCORE}/10", max(min_score, LAPTOP_MIN_SCORE)
             conn.execute(
                 "UPDATE listings SET llm_score = ?, llm_comment = ?, status = ? WHERE id = ?",
-                (score, comment, "scored" if score >= min_score else "rejected_llm", r["id"]),
+                (score, comment, "scored" if score >= threshold else "rejected_llm", r["id"]),
             )
             done += 1
         conn.commit()

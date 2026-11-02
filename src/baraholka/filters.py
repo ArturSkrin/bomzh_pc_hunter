@@ -12,7 +12,7 @@ WANT_KEYWORDS = [
     "placa de baza", "motherboard", "kit placa de baza",
     "ram", "ddr3", "ddr4", "ddr5", "memorie", "memorii",
     "ssd", "nvme", "m.2", "hdd", "hard disk", "harddisk",
-    "sursa", "unitate pc", "unitate", "sistem pc", "desktop", "mini pc", "workstation", "server",
+    "sursa", "carcasa", "atx", "itx", "unitate pc", "unitate", "sistem pc", "desktop", "mini pc", "workstation", "server",
     "optiplex", "thinkcentre", "elitedesk", "prodesk", "pc", "calculator", "laptop", "notebook",
     # линейки ноутбуков — в заголовке часто нет слова «laptop»
     "macbook", "thinkpad", "latitude", "elitebook", "probook", "ideapad", "vivobook", "zenbook", "aspire", "pavilion",
@@ -29,6 +29,20 @@ TITLE_BLOCK = [
     # калькуляторы и игрушки
     "stiintific", "de buzunar", "casio", "citizen", "jucarie", "jucarii", "copii", "fisher", "vtech", "interactiv",
     "interaktywny", "lego",
+    # ломбарды: продают по рынку, в заголовке — адрес и номер квитанции
+    "amanet", "amanetul",
+    # экраны, клавиатуры, веб-камеры, колонки — не наш профиль ни для ноута, ни для ПК
+    "ecran", "display", "diplay", "lcd", "tastatura", "webcam", "difuzor", "difuzoare",
+]
+# Запчасти ноутбуков: «carcasa», «baterie» сами по себе бывают и у ПК (корпус, батарейка BIOS),
+# поэтому режем, только если в заголовке ещё и ноутбук
+LAPTOP_PART = [
+    "carcasa", "baterie", "acumulator", "balamale", "bezel", "palmrest", "touchpad", "cooler", "ventilator",
+    "placa de baza", "motherboard", "chiller", "radiator", "piese",
+]
+LAPTOP = [
+    "laptop", "laptopuri", "notebook", "macbook", "thinkpad", "latitude", "elitebook", "probook", "ideapad",
+    "vivobook", "zenbook", "aspire", "pavilion", "envy",
 ]
 # В описании — только то, что однозначно значит «не работает»
 TEXT_BLOCK = ["nu porneste", "nu functioneaza", "nu da imagine", "pentru piese", "nefunctional"]
@@ -47,13 +61,18 @@ def _words(words: list[str]) -> re.Pattern:
 _WANT = _words(WANT_KEYWORDS)
 _TITLE_BLOCK = _words(TITLE_BLOCK)
 _TEXT_BLOCK = _words(TEXT_BLOCK)
+_LAPTOP_PART = _words(LAPTOP_PART)
+_LAPTOP = _words(LAPTOP)
 
 
 def passes_rules(lot: Listing, max_price_ron: float) -> bool:
     title, desc = fold(lot.title), fold(lot.description)
     if _TITLE_BLOCK.search(title) or _TEXT_BLOCK.search(desc):
         return False
-    if not _WANT.search(f"{title} {desc}"):
+    if _LAPTOP_PART.search(title) and _LAPTOP.search(title):
+        return False
+    # Что это — по заголовку: в описании «laptop», «pc» встречаются у стабилизаторов и чехлов
+    if not _WANT.search(title):
         return False
     if lot.is_free:
         return True

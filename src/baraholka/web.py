@@ -12,7 +12,7 @@ app = Flask(__name__)
 log = logging.getLogger("baraholka")
 
 STATUSES = {
-    "new": "новое", "scored": "оценено", "sent": "в Telegram", "negotiating": "в работе", "skipped": "пропущено",
+    "new": "ждёт оценки", "scored": "оценено", "sent": "в Telegram", "negotiating": "в работе", "skipped": "пропущено",
     "search": "из поиска", "rejected": "отсеяно фильтром", "rejected_llm": "отсеяно нейронкой", "stale": "старое", "send_failed": "не отправилось",
 }
 # Нижняя граница — чтобы не долбить сайты чаще, чем раз в 5 минут
@@ -74,7 +74,8 @@ def listings():
     if f["status"]:
         where.append("status = ?"); params.append(f["status"])
     else:
-        where.append("status NOT IN ('rejected', 'rejected_llm', 'stale')")
+        # «new» ещё не оценены нейронкой — там мусор, который она сейчас отсеет
+        where.append("status NOT IN ('new', 'rejected', 'rejected_llm', 'stale')")
     if f["source"]:
         where.append("source = ?"); params.append(f["source"])
     if f["q"]:

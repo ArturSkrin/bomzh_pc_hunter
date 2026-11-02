@@ -29,7 +29,7 @@
 {% block body %}
 <form class="row" method="get">
   <select name="status">
-    <option value="">все, кроме отсеянных и старых</option>
+    <option value="">все, кроме отсеянных, старых и неоценённых</option>
     {% for key, label in statuses.items() %}
       <option value="{{ key }}" {{ 'selected' if f.status == key }}>{{ label }} ({{ counts.get(key, 0) }})</option>
     {% endfor %}
