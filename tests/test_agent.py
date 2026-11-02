@@ -111,3 +111,21 @@ def test_draft_reply_saves_flags_if_still_bad(tmp_path, monkeypatch):
     monkeypatch.setattr(agent, "llm_json", lambda *a: {"text": "Ne vedem pe strada Unirii", "offer_ron": 150})
     m = agent.draft_reply(conn, "m", lid, "ask")
     assert {f["rule"] for f in json.loads(m["flags"])} == {"personal", "ceiling"}
+
+
+def test_one_pending_draft_and_history_only_sent(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "d.db")
+    lid = db.insert_if_new(conn, Listing("olx", "1", "Sursa 450W", "https://x/1", 110))
+    users = []
+    replies = iter(["Mai este?", "Merge?", "Rămân la 80 lei."])
+    monkeypatch.setattr(agent, "llm_json", lambda m, s, u: users.append(json.loads(u)) or {"text": next(replies)})
+
+    agent.draft_reply(conn, "m", lid, "ask")
+    agent.draft_reply(conn, "m", lid, "ask")  # передумал — первый неотправленный заменяется
+    assert [r["text"] for r in conn.execute("SELECT text FROM messages")] == ["Merge?"]
+    assert users[1]["conversation"] == []  # неотправленное нейронка не видит
+
+    agent.draft_reply(conn, "m", lid, "reply", "Da, 95 lei.")  # продавец ответил — «Merge?» он получил
+    rows = conn.execute("SELECT direction, text, sent FROM messages ORDER BY id").fetchall()
+    assert [tuple(r) for r in rows] == [("draft", "Merge?", 1), ("seller", "Da, 95 lei.", 0), ("draft", "Rămân la 80 lei.", 0)]
+    assert [m["from"] for m in users[2]["conversation"]] == ["я", "продавец"]

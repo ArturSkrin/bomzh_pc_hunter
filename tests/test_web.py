@@ -99,7 +99,7 @@ def test_listing_page_and_draft(client, monkeypatch):
     conn.commit()
     assert client.post("/listing/1/offer", data={"max_offer": "700"}).status_code == 302
     html = client.get("/listing/1").get_data(as_text=True)
-    assert "RTX 3060 &lt;b&gt;" in html and "потолок сейчас: 500 lei" in html  # общий 500 меньше моих 700 и цены 900
+    assert "RTX 3060 &lt;b&gt;" in html and "больше 500 lei" in html  # общий 500 меньше моих 700 и цены 900
     client.post("/listing/1/draft", data={"goal": "reply", "text": "Da, <merge>"})
     html = client.get("/listing/1").get_data(as_text=True)
     assert "Bună ziua, mai este?" in html and "Da, &lt;merge&gt;" in html

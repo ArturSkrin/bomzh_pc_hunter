@@ -151,6 +151,13 @@ def make_draft(lid):
     return redirect(url_for("listing", lid=lid) + "#end")
 
 
+@app.post("/listing/<int:lid>/message/<int:mid>/sent")
+def mark_sent(lid, mid):
+    conn().execute("UPDATE messages SET sent = 1 WHERE id = ? AND listing_id = ?", (mid, lid))
+    conn().commit()
+    return "", 204
+
+
 @app.post("/listing/<int:lid>/message/<int:mid>/delete")
 def delete_message(lid, mid):
     # Ошибочное сообщение (не туда вставил) путает нейронку в следующих черновиках

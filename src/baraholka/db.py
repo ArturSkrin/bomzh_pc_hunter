@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS messages (
     text        TEXT NOT NULL,
     note        TEXT NOT NULL DEFAULT '',  -- для черновика: перевод и пояснение по-русски
     flags       TEXT NOT NULL DEFAULT '[]',  -- нарушения жёстких правил (JSON), для продавца — красные флаги
+    sent        INTEGER NOT NULL DEFAULT 0,  -- черновик я скопировал и отправил; нейронка видит только отправленное
+    prompt      TEXT NOT NULL DEFAULT '',  -- о чём я просил бота, когда он писал этот черновик
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -68,6 +70,8 @@ MIGRATIONS = [
     ("listings", "max_offer_ron", "REAL"),
     ("messages", "note", "TEXT NOT NULL DEFAULT ''"),
     ("messages", "flags", "TEXT NOT NULL DEFAULT '[]'"),
+    ("messages", "sent", "INTEGER NOT NULL DEFAULT 0"),
+    ("messages", "prompt", "TEXT NOT NULL DEFAULT ''"),
 ]
 
 # Как пишут продавцы на OLX; «calculator» в одиночку ловит и калькуляторы, поэтому только в связках

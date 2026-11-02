@@ -192,24 +192,29 @@ def draft_reply(conn: sqlite3.Connection, model: str, lid: int, goal: str, text:
     row = conn.execute("SELECT * FROM listings WHERE id = ?", (lid,)).fetchone()
     seller_text = text if goal == "reply" else None
     if seller_text:
+        # Продавец ответил — значит, мой последний черновик он получил
+        conn.execute("""UPDATE messages SET sent = 1 WHERE id = (
+                          SELECT max(id) FROM messages WHERE listing_id = ? AND direction = 'draft')""", (lid,))
         flags = [v.__dict__ for v in guards.scan_seller_message(seller_text)]
         conn.execute("INSERT INTO messages (listing_id, direction, text, flags) VALUES (?, 'seller', ?, ?)",
                      (lid, seller_text, json.dumps(flags, ensure_ascii=False)))
     ceiling = lot_ceiling(conn, row)
     history = [{"from": "я" if m["direction"] == "draft" else "продавец", "text": m["text"]}
-               for m in conn.execute("SELECT * FROM messages WHERE listing_id = ? ORDER BY id", (lid,))]
+               for m in conn.execute("SELECT * FROM messages WHERE listing_id = ? AND (direction = 'seller' OR sent = 1) "
+                                     "ORDER BY id", (lid,))]
     lot = {"title": row["title"], "price_lei": row["price_ron"], "free": bool(row["is_free"]), "city": row["city"],
            "site": row["source"], "description": row["description"][:1500]}
     system = db.get_setting(conn, "llm_bargain_prompt") + DRAFT_RULES.format(goal=GOALS[goal], ceiling=f"{ceiling:.0f}")
     payload = {"listing": lot, "conversation": history}
-    if goal == "say":
-        payload["my_instruction"] = text
+    instruction = text if goal == "say" else None
+    if instruction:
+        payload["my_instruction"] = instruction
     user = json.dumps(payload, ensure_ascii=False)
 
     for attempt in range(2):
         answer = llm_json(model, system, user)
-        text, note = str(answer.get("text") or "").strip(), str(answer.get("note") or "")[:500]
-        violations = guards.check_draft(text, ceiling, has_comparables=False)
+        draft, note = str(answer.get("text") or "").strip(), str(answer.get("note") or "")[:500]
+        violations = guards.check_draft(draft, ceiling, has_comparables=False)
         offer = answer.get("offer_ron")
         if isinstance(offer, (int, float)):
             try:
@@ -221,10 +226,14 @@ def draft_reply(conn: sqlite3.Connection, model: str, lid: int, goal: str, text:
         user += "\n\nТвой прошлый черновик нарушил правила, перепиши: " + "; ".join(
             f"{v.rule}: {v.detail}" for v in violations)
 
+    asked = {"ask": "уточнить", "bargain": "предложить цену", "say": instruction}.get(goal, "")
     cur = conn.execute(
-        "INSERT INTO messages (listing_id, direction, text, note, flags) VALUES (?, 'draft', ?, ?, ?)",
-        (lid, text, note, json.dumps([v.__dict__ for v in violations], ensure_ascii=False)),
+        "INSERT INTO messages (listing_id, direction, text, note, flags, prompt) VALUES (?, 'draft', ?, ?, ?, ?)",
+        (lid, draft, note, json.dumps([v.__dict__ for v in violations], ensure_ascii=False), asked or ""),
     )
+    # Черновик всегда один: новый заменяет неотправленный старый
+    conn.execute("DELETE FROM messages WHERE listing_id = ? AND direction = 'draft' AND sent = 0 AND id != ?",
+                 (lid, cur.lastrowid))
     conn.execute("UPDATE listings SET status = 'negotiating' WHERE id = ?", (lid,))
     conn.commit()
     return conn.execute("SELECT * FROM messages WHERE id = ?", (cur.lastrowid,)).fetchone()
