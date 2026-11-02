@@ -158,25 +158,20 @@ def evaluate_new(conn: sqlite3.Connection, model: str, prompt: str, min_score: f
 # Жёсткая часть промпта торга: в коде, правка в вебе её не трогает. Сверху — редактируемый стиль (llm_bargain_prompt)
 DRAFT_RULES = """
 
-Ты пишешь от моего имени сообщение продавцу на барахолке. Я покупатель, я сам скопирую и отправлю.
+Ты пишешь от моего имени (я покупатель) сообщение продавцу, я сам его отправлю.
 Задача: {goal}
-Длина: как живой человек в чате — 1–3 коротких предложения, до 300 символов, не больше 2–3 вопросов за раз.
-Потолок: никогда не предлагай и не соглашайся на цену выше {ceiling} lei.
-Нельзя:
-- предоплата, перевод на карту, IBAN, оплата по ссылке, OLX Livrare с онлайн-оплатой;
-- мой телефон, адрес, место и время встречи — это решаю сам; если продавец спрашивает — напиши об этом в note;
-- ссылки на «похожие объявления» и «цены на рынке» — данных о рынке у тебя нет;
-- выдумывать факты, дефекты или обстоятельства.
-Доставка: курьер — только с оплатой при получении (ramburs), лучше с проверкой посылки при курьере
-(cu deschiderea coletului). Если продавец в Rădăuți или рядом — могу забрать сам, но договариваюсь я.
-Ответ — JSON: {{"text": "сообщение на румынском", "note": "по-русски: перевод и что дальше, до 300 символов",
-"offer_ron": предложенная в сообщении цена числом или null}}"""
+1–2 коротких предложения. Ничего не добавляй сверх задачи и не спрашивай то, что есть в описании.
+Цена — не выше {ceiling} lei. Курьер — только с оплатой при получении (ramburs).
+Нельзя: предоплата и оплата по ссылке; мой телефон, адрес, встреча; ссылки на «рынок»; выдуманные факты.
+JSON: {{"text": "на румынском", "note": "перевод на русский", "offer_ron": цена из сообщения числом или null}}"""
 
 GOALS = {
-    "ask": "уточни то, чего не хватает для решения: точная модель, конфигурация, всё ли работает, есть ли нюансы. "
-           "Цену пока не обсуждай.",
-    "bargain": "предложи цену ниже запрошенной, обоснуй коротко и честно тем, что известно о лоте.",
-    "reply": "ответь на последнее сообщение продавца и веди к сделке на нормальных условиях.",
+    "ask": "спроси только то, чего в описании не хватает для решения. Если всего хватает — спроси, актуально ли.",
+    "bargain": "предложи цену ниже запрошенной с одним коротким честным аргументом.",
+    "reply": "ответь на последнее сообщение продавца. На его цену сам не соглашайся — держи мою последнюю цену, "
+             "соглашаюсь я сам через указание.",
+    "say": "переведи моё указание (my_instruction) на румынский как сообщение продавцу: ровно мой смысл и мои цифры, "
+           "без своих вопросов и условий.",
 }
 
 
@@ -190,10 +185,12 @@ def lot_ceiling(conn: sqlite3.Connection, row: sqlite3.Row) -> float:
     return min(caps)
 
 
-def draft_reply(conn: sqlite3.Connection, model: str, lid: int, goal: str, seller_text: str | None = None) -> sqlite3.Row:
-    """Сохраняет ответ продавца (если есть), пишет следующий черновик и прогоняет его через guards.
+def draft_reply(conn: sqlite3.Connection, model: str, lid: int, goal: str, text: str | None = None) -> sqlite3.Row:
+    """Пишет следующий черновик и прогоняет его через guards. text — для reply ответ продавца (сохраняется
+    в переписку), для say — моё указание, что написать (в переписку не идёт).
     Нарушение — одна попытка исправить; не вышло — черновик сохраняется с флагами, чтобы я их видел."""
     row = conn.execute("SELECT * FROM listings WHERE id = ?", (lid,)).fetchone()
+    seller_text = text if goal == "reply" else None
     if seller_text:
         flags = [v.__dict__ for v in guards.scan_seller_message(seller_text)]
         conn.execute("INSERT INTO messages (listing_id, direction, text, flags) VALUES (?, 'seller', ?, ?)",
@@ -202,9 +199,12 @@ def draft_reply(conn: sqlite3.Connection, model: str, lid: int, goal: str, selle
     history = [{"from": "я" if m["direction"] == "draft" else "продавец", "text": m["text"]}
                for m in conn.execute("SELECT * FROM messages WHERE listing_id = ? ORDER BY id", (lid,))]
     lot = {"title": row["title"], "price_lei": row["price_ron"], "free": bool(row["is_free"]), "city": row["city"],
-           "site": row["source"], "description": row["description"][:1500], "my_score": row["llm_comment"]}
+           "site": row["source"], "description": row["description"][:1500]}
     system = db.get_setting(conn, "llm_bargain_prompt") + DRAFT_RULES.format(goal=GOALS[goal], ceiling=f"{ceiling:.0f}")
-    user = json.dumps({"listing": lot, "conversation": history}, ensure_ascii=False)
+    payload = {"listing": lot, "conversation": history}
+    if goal == "say":
+        payload["my_instruction"] = text
+    user = json.dumps(payload, ensure_ascii=False)
 
     for attempt in range(2):
         answer = llm_json(model, system, user)

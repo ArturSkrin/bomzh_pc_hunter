@@ -95,7 +95,7 @@ def test_draft_reply_retries_and_keeps_ceiling(tmp_path, monkeypatch):
         return next(answers)
 
     monkeypatch.setattr(agent, "llm_json", fake_llm)
-    m = agent.draft_reply(conn, "m", lid, "bargain", seller_text="Trimit prin Fan Courier, avans 50 lei")
+    m = agent.draft_reply(conn, "m", lid, "reply", "Trimit prin Fan Courier, avans 50 lei")
 
     assert m["text"].startswith("Bună ziua") and json.loads(m["flags"]) == []
     assert "180 lei" in seen[0][0]  # потолок — моё «до», а не цена продавца

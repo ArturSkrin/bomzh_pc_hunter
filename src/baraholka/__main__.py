@@ -94,8 +94,8 @@ def main() -> None:
     threading.Thread(target=web.serve, args=(settings,), daemon=True).start()
     log.info("Веб-морда: %s", panel)
 
-    def drafter(lid, goal, seller_text):
-        return agent.draft_reply(conn, settings.llm_model, lid, goal, seller_text)
+    def drafter(lid, goal, text):
+        return agent.draft_reply(conn, settings.llm_model, lid, goal, text)
 
     while True:
         log.info("Новых объявлений: %d", collect_once(settings, conn))

@@ -95,12 +95,13 @@ def test_buttons_and_replies_make_drafts(tmp_path):
         {"update_id": 2, "message": {"chat": chat, "text": "Da, merge",
                                      "reply_to_message": {"caption": f"... #lot{lid}"}}},
         {"update_id": 3, "message": {"chat": chat, "text": "без reply"}},
+        {"update_id": 5, "message": {"chat": chat, "text": "Скинь до 80", "reply_to_message": {"text": f"#lot{lid}"}}},
         {"update_id": 4, "message": {"chat": {"id": 666}, "text": "чужой", "reply_to_message": {"text": f"#lot{lid}"}}},
     ])
     api.bot.poll(conn, 0, drafter=drafter)
 
-    assert calls == [(lid, "ask", None), (lid, "reply", "Da, merge")]
+    assert calls == [(lid, "ask", None), (lid, "reply", "Da, merge"), (lid, "say", "Скинь до 80")]
     texts = [p["text"] for m, p in api.out if m == "sendMessage"]
     assert "<code>Bună &lt;ziua&gt;</code>" in texts[0] and f"#lot{lid}" in texts[0] and "⚠️ personal" in texts[0]
-    assert "reply" in texts[2] and len(texts) == 3  # без reply — подсказка; чужой чат — тишина
+    assert "reply" in texts[2] and len(texts) == 4  # без reply — подсказка; чужой чат — тишина
     assert status(conn, "fresh") == "negotiating"

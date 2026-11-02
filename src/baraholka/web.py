@@ -139,15 +139,23 @@ def set_max_offer(lid):
 @app.post("/listing/<int:lid>/draft")
 def make_draft(lid):
     goal = request.form.get("goal", "reply")
-    seller = request.form.get("seller", "").strip() or None
+    text = request.form.get("text", "").strip() or None
     if goal not in agent.GOALS:
         abort(400)
     try:
         # shortcut: синхронно, ~10 секунд на ответ модели
-        agent.draft_reply(conn(), app.config["SETTINGS"].llm_model, lid, goal, seller)
+        agent.draft_reply(conn(), app.config["SETTINGS"].llm_model, lid, goal, text)
     except Exception as e:
         log.exception("Черновик не написался")
         return redirect(url_for("listing", lid=lid, error=type(e).__name__))
+    return redirect(url_for("listing", lid=lid) + "#end")
+
+
+@app.post("/listing/<int:lid>/message/<int:mid>/delete")
+def delete_message(lid, mid):
+    # Ошибочное сообщение (не туда вставил) путает нейронку в следующих черновиках
+    conn().execute("DELETE FROM messages WHERE id = ? AND listing_id = ?", (mid, lid))
+    conn().commit()
     return redirect(url_for("listing", lid=lid) + "#end")
 
 

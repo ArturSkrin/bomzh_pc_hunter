@@ -31,7 +31,11 @@
   <div class="txt">{{ m.text }}</div>
   {% if m.note %}<div class="muted">{{ m.note }}</div>{% endif %}
   {% for f in m.flags %}<div class="err">⚠️ {{ f.rule }}: {{ f.detail }}</div>{% endfor %}
-  {% if m.direction == 'draft' %}<button type="button" class="copy">Копировать</button>{% endif %}
+  <div class="row" style="margin:6px 0 0">
+    {% if m.direction == 'draft' %}<button type="button" class="copy">Копировать</button>{% endif %}
+    <form class="inline" method="post" action="{{ url_for('delete_message', lid=l.id, mid=m.id) }}"
+      onsubmit="return confirm('Удалить из переписки?')"><button class="del" title="Удалить">🗑</button></form>
+  </div>
 </div>
 {% else %}
 <p class="muted">Пока пусто. Начни с уточнения — нейронка напишет первое сообщение продавцу.</p>
@@ -41,9 +45,10 @@
 {% if error %}<p class="err">⚠️ Черновик не получился ({{ error }}). Подробности — в логе бота.</p>{% endif %}
 
 <form method="post" action="{{ url_for('make_draft', lid=l.id) }}" class="draft" style="display:grid; gap:8px">
-  <textarea name="seller" rows="3" placeholder="Ответ продавца — вставь сюда, нейронка предложит следующую реплику"></textarea>
+  <textarea name="text" rows="3" placeholder="Что написать продавцу (по-русски) — или вставь его ответ"></textarea>
   <div class="row" style="margin:0">
-    <button class="primary" name="goal" value="reply">Ответить продавцу</button>
+    <button class="primary" name="goal" value="say" title="Переведёт на румынский ровно то, что ты написал">✍️ Напиши так</button>
+    <button name="goal" value="reply" title="Текст выше — ответ продавца; нейронка предложит, что ответить">Это ответ продавца → ответить</button>
     <button name="goal" value="ask">❓ Уточнить</button>
     <button name="goal" value="bargain">🤝 Предложить цену</button>
     <span class="muted wait" hidden>Пишу черновик… секунд 10–20.</span>
@@ -58,6 +63,7 @@
   .msg { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin-bottom:10px; max-width:720px; }
   .msg.seller { margin-left:auto; }
   .msg .txt { white-space:pre-wrap; margin:6px 0; }
+  .msg button.del { color:var(--muted); }
   @media (max-width: 640px) { .lot { grid-template-columns:1fr; } }
 </style>
 <script>
@@ -68,9 +74,9 @@
     });
   }
   document.querySelector("form.draft").addEventListener("submit", e => {
-    // Без текста продавца «Ответить» бессмысленно — подсказываем, а не шлём пустое
-    if (e.submitter.value === "reply" && !e.target.seller.value.trim()) {
-      e.preventDefault(); e.target.seller.focus(); return;
+    // «Напиши так» и «ответить» без текста бессмысленны — подсказываем, а не шлём пустое
+    if (["say", "reply"].includes(e.submitter.value) && !e.target.text.value.trim()) {
+      e.preventDefault(); e.target.text.focus(); return;
     }
     // disabled на кнопке выбросил бы её goal из формы — прячем остальные после отправки
     setTimeout(() => e.target.querySelectorAll("button").forEach(b => b.disabled = true));

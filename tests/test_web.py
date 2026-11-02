@@ -100,7 +100,7 @@ def test_listing_page_and_draft(client, monkeypatch):
     assert client.post("/listing/1/offer", data={"max_offer": "700"}).status_code == 302
     html = client.get("/listing/1").get_data(as_text=True)
     assert "RTX 3060 &lt;b&gt;" in html and "потолок сейчас: 500 lei" in html  # общий 500 меньше моих 700 и цены 900
-    client.post("/listing/1/draft", data={"goal": "reply", "seller": "Da, <merge>"})
+    client.post("/listing/1/draft", data={"goal": "reply", "text": "Da, <merge>"})
     html = client.get("/listing/1").get_data(as_text=True)
     assert "Bună ziua, mai este?" in html and "Da, &lt;merge&gt;" in html
     assert client.post("/listing/1/draft", data={"goal": "hack"}).status_code == 400
@@ -111,3 +111,18 @@ def test_unscored_hidden_by_default(client):
     db.insert_if_new(conn, Listing("olx", "9", "Stabilizator neevaluat", "https://x/9", 100))
     assert "neevaluat" not in client.get("/").get_data(as_text=True)
     assert "neevaluat" in client.get("/?status=new").get_data(as_text=True)
+
+
+def test_say_and_delete_message(client, monkeypatch):
+    from baraholka import agent
+    from types import SimpleNamespace
+    app.config["SETTINGS"] = SimpleNamespace(llm_model="m")
+    seen = []
+    monkeypatch.setattr(agent, "llm_json", lambda m, sys, user: seen.append(user) or {"text": "Trimiteți? 80 lei?"})
+    client.post("/listing/1/draft", data={"goal": "say", "text": "Курьером отправите? Скидка до 80?"})
+    assert "Курьером отправите" in seen[0] and "my_instruction" in seen[0]
+    conn = db.connect(app.config["DB_PATH"])
+    assert [r[0] for r in conn.execute("SELECT direction FROM messages")] == ["draft"]  # указание — не реплика продавца
+    mid = conn.execute("SELECT id FROM messages").fetchone()[0]
+    client.post(f"/listing/1/message/{mid}/delete")
+    assert conn.execute("SELECT count(*) FROM messages").fetchone()[0] == 0

@@ -11,6 +11,8 @@ import httpx
 log = logging.getLogger("baraholka")
 # Метка лота в тексте сообщения: по ней понимаю, к какому лоту ответ продавца (reply на карточку или черновик)
 LOT_TAG = re.compile(r"#lot(\d+)")
+# Продавцы пишут по-румынски латиницей; кириллица в reply — значит, это я говорю боту, что написать
+CYRILLIC = re.compile(r"[а-яА-ЯёЁ]")
 
 
 class Bot:
@@ -41,7 +43,7 @@ class Bot:
                   disable_web_page_preview=True, **({"reply_to_message_id": reply_to} if reply_to else {}))
 
     def poll(self, conn: sqlite3.Connection, timeout: int, drafter: Callable | None = None) -> None:
-        """Ждёт кнопок и сообщений до timeout секунд. drafter(lid, goal, seller_text) пишет черновик."""
+        """Ждёт кнопок и сообщений до timeout секунд. drafter(lid, goal, text) пишет черновик."""
         for upd in self.call("getUpdates", offset=self.offset, timeout=timeout,
                              allowed_updates=["callback_query", "message"]):
             self.offset = upd["update_id"] + 1
@@ -60,13 +62,15 @@ class Bot:
                 parent = msg.get("reply_to_message") or {}
                 tag = LOT_TAG.search(parent.get("text") or parent.get("caption") or "")
                 if not tag:
-                    self.say("Чтобы я понял, к какому лоту ответ продавца, ответь (reply) на карточку или черновик.")
+                    self.say("Ответь (reply) на карточку или черновик, чтобы я понял, к какому лоту. "
+                             "По-русски — что написать продавцу, по-румынски — его ответ.")
                 elif drafter:
-                    self.send_draft(drafter, int(tag[1]), "reply", msg["text"])
+                    goal = "say" if CYRILLIC.search(msg["text"]) else "reply"
+                    self.send_draft(drafter, int(tag[1]), goal, msg["text"])
 
-    def send_draft(self, drafter: Callable, lid: int, goal: str, seller_text: str | None = None) -> None:
+    def send_draft(self, drafter: Callable, lid: int, goal: str, text: str | None = None) -> None:
         try:
-            m = drafter(lid, goal, seller_text)
+            m = drafter(lid, goal, text)
         except Exception as e:
             log.exception("Черновик для лота %s не написался", lid)
             self.say(f"Не получилось написать черновик ({type(e).__name__}), подробности в логе.")
@@ -105,7 +109,7 @@ def draft_text(lid: int, m: sqlite3.Row, panel_url: str = "") -> str:
         f"✍️ Черновик продавцу #lot{lid}\n\n<code>{_esc(m['text'])}</code>\n\n"
         + (f"<i>{_esc(m['note'])}</i>\n" if m["note"] else "")
         + flags
-        + "\nОтвет продавца — пришли reply на это сообщение."
+        + "\nReply на это сообщение: ответ продавца (по-румынски) или что написать (по-русски)."
         + (f"\nПереписка: {panel_url}/listing/{lid}" if panel_url else "")
     )
 
