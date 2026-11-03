@@ -4,7 +4,7 @@ import json
 import logging
 from urllib.parse import urlparse
 
-from flask import Flask, abort, g, make_response, redirect, render_template, request, url_for
+from flask import Flask, abort, g, jsonify, make_response, redirect, render_template, request, url_for
 
 from . import agent, db
 
@@ -112,6 +112,30 @@ def set_status(lid):
     conn().execute("UPDATE listings SET status = ? WHERE id = ?", (status, lid))
     conn().commit()
     return redirect(request.referrer or url_for("listings"))
+
+
+@app.post("/listings/chat")
+def listings_chat():
+    data = request.get_json(silent=True) or {}
+    text = str(data.get("request", "")).strip()
+    if not text or not isinstance(data.get("ids"), list):
+        abort(400)
+    try:
+        return jsonify(agent.list_chat(conn(), app.config["SETTINGS"].llm_model, text, data["ids"],
+                                       data.get("history") or []))
+    except Exception as e:
+        log.exception("Чат по списку упал")
+        return jsonify({"ids": None, "reply": f"Не получилось ({type(e).__name__}), подробности в логе бота."}), 502
+
+
+@app.post("/listings/bulk-status")
+def bulk_status():
+    # Массово — только «пропустить»: остальное делаю по одному, глядя на лот
+    ids = [int(i) for i in (request.get_json(silent=True) or {}).get("ids", [])]
+    marks = ",".join("?" * len(ids)) or "NULL"
+    n = conn().execute(f"UPDATE listings SET status = 'skipped' WHERE id IN ({marks})", ids).rowcount
+    conn().commit()
+    return jsonify({"updated": n})
 
 
 @app.get("/listing/<int:lid>")

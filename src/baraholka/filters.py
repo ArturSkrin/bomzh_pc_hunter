@@ -11,7 +11,7 @@ WANT_KEYWORDS = [
     "procesor", "cpu", "ryzen", "intel core", "xeon", "i3", "i5", "i7", "i9",
     "placa de baza", "motherboard", "kit placa de baza",
     "ram", "ddr3", "ddr4", "ddr5", "memorie", "memorii",
-    "ssd", "nvme", "m.2", "hdd", "hard disk", "harddisk",
+    "ssd", "nvme", "m.2",
     "sursa", "carcasa", "atx", "itx", "unitate pc", "unitate", "sistem pc", "desktop", "mini pc", "workstation", "server",
     "optiplex", "thinkcentre", "elitedesk", "prodesk", "pc", "calculator", "laptop", "notebook",
     # линейки ноутбуков — в заголовке часто нет слова «laptop»
@@ -44,6 +44,11 @@ LAPTOP = [
     "laptop", "laptopuri", "notebook", "macbook", "thinkpad", "latitude", "elitebook", "probook", "ideapad",
     "vivobook", "zenbook", "aspire", "pavilion", "envy",
 ]
+# Обычные HDD не берём — но «PC i5, HDD 500GB» это системник, его не трогаем
+HDD = ["hdd", "hard disk", "harddisk", "hard extern", "hard intern", "disc dur", "hard"]
+SYSTEM = ["unitate", "pc", "calculator", "sistem", "desktop", "server", "workstation", "optiplex", "thinkcentre",
+          "elitedesk", "prodesk", "kit", "nas"] + LAPTOP
+
 # В описании — только то, что однозначно значит «не работает»
 TEXT_BLOCK = ["nu porneste", "nu functioneaza", "nu da imagine", "pentru piese", "nefunctional"]
 
@@ -63,6 +68,8 @@ _TITLE_BLOCK = _words(TITLE_BLOCK)
 _TEXT_BLOCK = _words(TEXT_BLOCK)
 _LAPTOP_PART = _words(LAPTOP_PART)
 _LAPTOP = _words(LAPTOP)
+_HDD = _words(HDD)
+_SYSTEM = _words(SYSTEM)
 
 
 def passes_rules(lot: Listing, max_price_ron: float) -> bool:
@@ -70,6 +77,8 @@ def passes_rules(lot: Listing, max_price_ron: float) -> bool:
     if _TITLE_BLOCK.search(title) or _TEXT_BLOCK.search(desc):
         return False
     if _LAPTOP_PART.search(title) and _LAPTOP.search(title):
+        return False
+    if _HDD.search(title) and not _SYSTEM.search(title):
         return False
     # Что это — по заголовку: в описании «laptop», «pc» встречаются у стабилизаторов и чехлов
     if not _WANT.search(title):

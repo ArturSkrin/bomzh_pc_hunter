@@ -45,11 +45,13 @@ EVAL_BATCH = 30  # объявлений в одном запросе к LLM
 LAPTOP_MIN_SCORE = 10  # ноутбуками почти не занимаюсь — только если прям подарок
 
 
-def llm_json(model: str, system: str, user: str) -> dict:
+def llm_json(model: str, system: str, user: str, **extra) -> dict:
     resp = litellm.completion(
         model=model,
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         response_format={"type": "json_object"},
+        drop_params=True,  # extra вроде reasoning_effort — модели, которые его не знают, просто не получат
+        **extra,
     )
     return json.loads(resp.choices[0].message.content)
 
@@ -237,3 +239,36 @@ def draft_reply(conn: sqlite3.Connection, model: str, lid: int, goal: str, text:
     conn.execute("UPDATE listings SET status = 'negotiating' WHERE id = ?", (lid,))
     conn.commit()
     return conn.execute("SELECT * FROM messages WHERE id = ?", (cur.lastrowid,)).fetchone()
+
+
+# Чат по списку: модель видит то, что сейчас на экране, и решает, что показать и в каком порядке.
+# Менять статусы она не может — только вернуть id; «убрать насовсем» я жму сам
+LIST_PROMPT = """Ты помогаешь перекупу б/у железа разбирать список объявлений с барахолок (Румыния, база — Rădăuți).
+На входе: request — моя просьба, history — прошлые реплики, items — объявления, которые сейчас на экране.
+Просьба бывает фильтром («убери HDD», «только комплекты мать+проц»), сортировкой («сначала дешёвые»)
+или вопросом («сколько видеокарт?», «что лучше под хоумлаб?»). Суди по смыслу заголовка, а не по ключевым словам.
+Ответ — JSON: {"ids": [id в нужном порядке] или null, "reply": "по-русски, 1–2 предложения: что сделал или ответ"}
+ids — только из items. null — если список менять не надо (просто вопрос). Пустой список — если ничего не подошло."""
+LIST_MAX = 400  # больше в один запрос не шлём
+
+
+def list_chat(conn: sqlite3.Connection, model: str, request: str, ids: list[int], history: list[dict]) -> dict:
+    """Возвращает {"ids": [...] | None, "reply": str}. Данные лотов — из базы, а не от браузера."""
+    ids = [int(i) for i in ids][:LIST_MAX]
+    marks = ",".join("?" * len(ids)) or "NULL"
+    rows = conn.execute(f"SELECT * FROM listings WHERE id IN ({marks})", ids).fetchall()
+    items = [{"id": r["id"], "title": r["title"], "price_lei": r["price_ron"], "free": bool(r["is_free"]),
+              "score": r["llm_score"], "city": r["city"], "site": r["source"], "status": r["status"],
+              "posted": (r["posted_at"] or "")[:10]} for r in rows]
+    history = [{"role": h.get("role"), "text": str(h.get("text", ""))[:500]} for h in history[-6:]]
+    # Разложить список по смыслу — не головоломка: без долгих рассуждений ответ в разы быстрее
+    answer = llm_json(model, LIST_PROMPT, json.dumps(
+        {"request": request, "history": history, "items": items}, ensure_ascii=False), reasoning_effort="low")
+    known = {r["id"] for r in rows}
+    out = answer.get("ids")
+    if isinstance(out, list):
+        seen = set()  # только наши id, без повторов — модель может выдумать или задвоить
+        out = [i for i in out if isinstance(i, int) and i in known and not (i in seen or seen.add(i))]
+    else:
+        out = None
+    return {"ids": out, "reply": str(answer.get("reply") or "")[:600]}

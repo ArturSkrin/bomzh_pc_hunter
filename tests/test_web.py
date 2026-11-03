@@ -126,3 +126,20 @@ def test_say_and_delete_message(client, monkeypatch):
     mid = conn.execute("SELECT id FROM messages").fetchone()[0]
     client.post(f"/listing/1/message/{mid}/delete")
     assert conn.execute("SELECT count(*) FROM messages").fetchone()[0] == 0
+
+
+def test_list_chat_and_bulk_skip(client, monkeypatch):
+    from baraholka import agent
+    from types import SimpleNamespace
+    app.config["SETTINGS"] = SimpleNamespace(llm_model="m")
+    monkeypatch.setattr(agent, "llm_json", lambda *a, **kw: {"ids": [1], "reply": "ок"})
+    r = client.post("/listings/chat", json={"request": "оставь RTX", "ids": [1], "history": []})
+    assert r.get_json() == {"ids": [1], "reply": "ок"}
+    assert client.post("/listings/chat", json={"request": ""}).status_code == 400
+    assert 'data-id="1"' in client.get("/").get_data(as_text=True)
+
+    assert client.post("/listings/bulk-status", json={"ids": [1]}).get_json() == {"updated": 1}
+    conn = db.connect(app.config["DB_PATH"])
+    assert conn.execute("SELECT status FROM listings WHERE id = 1").fetchone()[0] == "skipped"
+    # чужой сайт не может массово пометить мои лоты
+    assert client.post("/listings/bulk-status", json={"ids": [1]}, headers={"Origin": "https://evil.example"}).status_code == 403

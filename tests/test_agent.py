@@ -129,3 +129,24 @@ def test_one_pending_draft_and_history_only_sent(tmp_path, monkeypatch):
     rows = conn.execute("SELECT direction, text, sent FROM messages ORDER BY id").fetchall()
     assert [tuple(r) for r in rows] == [("draft", "Merge?", 1), ("seller", "Da, 95 lei.", 0), ("draft", "Rămân la 80 lei.", 0)]
     assert [m["from"] for m in users[2]["conversation"]] == ["я", "продавец"]
+
+
+def test_list_chat_keeps_only_known_ids(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "l.db")
+    a = db.insert_if_new(conn, Listing("olx", "1", "HDD WD 500GB", "https://x/1", 40))
+    b = db.insert_if_new(conn, Listing("olx", "2", "Kit placa de baza + i5", "https://x/2", 200))
+    c = db.insert_if_new(conn, Listing("olx", "3", "Placa video RX 580", "https://x/3", 250))
+    seen = {}
+
+    def fake(model, system, user, **extra):
+        seen.update(json.loads(user), effort=extra.get("reasoning_effort"))
+        return {"ids": [c, b, 99999, b, "x"], "reply": "убрал HDD"}
+
+    monkeypatch.setattr(agent, "llm_json", fake)
+    out = agent.list_chat(conn, "m", "убери HDD", [a, b, c], [{"role": "user", "text": "привет"}])
+    assert out == {"ids": [c, b], "reply": "убрал HDD"}  # порядок модели, без чужих и повторов
+    assert seen["effort"] == "low"
+    assert {i["title"] for i in seen["items"]} == {"HDD WD 500GB", "Kit placa de baza + i5", "Placa video RX 580"}
+
+    monkeypatch.setattr(agent, "llm_json", lambda *a, **kw: {"ids": None, "reply": "3 объявления"})
+    assert agent.list_chat(conn, "m", "сколько?", [a, b, c], [])["ids"] is None

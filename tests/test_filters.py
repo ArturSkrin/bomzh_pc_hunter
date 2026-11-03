@@ -40,3 +40,11 @@ def test_pawnshops_laptop_parts_and_desc_only_blocked():
     # те же слова у ПК — норм
     for title in ("Carcasa Lian Li O11 MINI / Kit ITX", "Kit complet intel + placa video + baterie bios", "Placa de baza AM4"):
         assert passes_rules(lot(title), 1500), title
+
+
+def test_plain_hdd_blocked_but_systems_with_hdd_pass():
+    for title in ("Hard disk Seagate Barracuda 500 GB SATA", "WD HDD 500gb", "Vând Hard extern Seagate 2TB",
+                  "HDD 2.5\" HGST 500GB 7200 rpm SATA"):
+        assert not passes_rules(lot(title), 1500), title
+    for title in ("PC Desktop i5-750, 16 gb RAM, HDD 1tb", "SSD Kingston A400 480GB", "Unitate PC i5 hard disk 500"):
+        assert passes_rules(lot(title), 1500), title

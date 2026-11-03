@@ -49,7 +49,7 @@
   </select>
   <input type="hidden" name="view" value="{{ view }}">
   <button class="primary">Показать</button>
-  <span class="muted">{{ lots|length }} шт.{% if lots|length == 300 %} (первые 300){% endif %}</span>
+  <span class="muted" id="count">{{ lots|length }} шт.{% if lots|length == 300 %} (первые 300){% endif %}</span>
   <span class="seg" style="margin-left:auto">
     <a href="{{ listings_url(view='table') }}" class="{{ 'on' if view == 'table' }}">☰ Таблица</a>
     <a href="{{ listings_url(view='grid') }}" class="{{ 'on' if view == 'grid' }}">▦ Плитка</a>
@@ -59,7 +59,7 @@
 {% if view == 'grid' %}
 <div class="grid">
   {% for l in lots %}
-  <article class="card">
+  <article class="card" data-id="{{ l.id }}">
     <a href="{{ l.url }}" target="_blank" rel="noopener" class="ph">
       {% if l.photo %}<img src="{{ l.photo }}" loading="lazy" alt="">{% else %}<span class="muted">нет фото</span>{% endif %}
     </a>
@@ -84,7 +84,7 @@
     <th></th>
   </tr>
   {% for l in lots %}
-  <tr>
+  <tr data-id="{{ l.id }}">
     <td>{% if l.thumb %}<img class="thumb" src="{{ l.thumb }}" loading="lazy" alt="">{% endif %}</td>
     <td><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title }}</a><br><span class="muted">{{ l.source }}{% if l.llm_comment %} · {{ l.llm_comment }}{% endif %}</span></td>
     <td>{{ score(l) }}</td>
@@ -99,4 +99,180 @@
   {% endfor %}
 </table>
 {% endif %}
+
+<button class="lc-fab" id="lc-open" aria-expanded="false" aria-controls="lc">💬 Спросить по списку</button>
+<section class="lc" id="lc" hidden aria-label="Чат по списку">
+  <header>
+    <b>Чат по списку</b>
+    <span class="muted" id="lc-state"></span>
+    <button class="lc-x" id="lc-close" aria-label="Закрыть">×</button>
+  </header>
+  <div class="lc-feed" id="lc-feed">
+    <div class="lc-m bot">Скажи, что сделать со списком, — я вижу всё, что сейчас на экране.</div>
+  </div>
+  <div class="lc-chips" id="lc-chips">
+    <button>Убери HDD и мелочь до 30 lei</button>
+    <button>Только комплекты мать + проц</button>
+    <button>Что пойдёт в хоумлаб?</button>
+    <button>Сначала лучшие по оценке</button>
+  </div>
+  <div class="lc-bar" id="lc-bar" hidden>
+    <button id="lc-reset">Сбросить</button>
+    <button id="lc-skip" class="warn"></button>
+  </div>
+  <form id="lc-form">
+    <textarea id="lc-input" rows="1" placeholder="Например: оставь только Сучаву и рядом"></textarea>
+    <button class="primary" aria-label="Отправить">↑</button>
+  </form>
+</section>
+
+<style>
+  [data-id][hidden] { display:none !important; }  /* у .card свой display:flex, он перебил бы hidden */
+  .lc-fab { position:fixed; right:20px; bottom:20px; z-index:20; border-radius:99px; padding:10px 18px;
+            background:var(--accent); color:var(--bg); border:0; font-weight:600; box-shadow:0 4px 16px rgb(0 0 0 / .25); }
+  .lc { position:fixed; right:20px; bottom:20px; z-index:21; width:min(400px, calc(100vw - 32px));
+        height:min(600px, calc(100vh - 40px)); display:flex; flex-direction:column; background:var(--card);
+        border:1px solid var(--line); border-radius:14px; box-shadow:0 8px 32px rgb(0 0 0 / .3); }
+  .lc[hidden] { display:none; }
+  .lc header { display:flex; gap:8px; align-items:baseline; padding:12px 14px; border-bottom:1px solid var(--line); }
+  .lc-x { margin-left:auto; border:0; background:none; font-size:20px; line-height:1; color:var(--muted); padding:0 4px; }
+  .lc-feed { flex:1; overflow:auto; padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
+  .lc-m { max-width:88%; padding:8px 12px; border-radius:14px; white-space:pre-wrap; font-size:14px; }
+  .lc-m.me { align-self:flex-end; background:color-mix(in srgb, var(--accent) 16%, var(--card)); border-bottom-right-radius:4px; }
+  .lc-m.bot { align-self:flex-start; background:var(--bg); border:1px solid var(--line); border-bottom-left-radius:4px; }
+  .lc-m.err { color:var(--warn); }
+  .lc-chips[hidden] { display:none; }
+  .lc-chips { display:flex; flex-wrap:wrap; gap:6px; padding:0 14px 8px; }
+  .lc-chips button { border-radius:99px; font-size:13px; padding:4px 10px; }
+  .lc-bar { display:flex; gap:6px; padding:0 14px 8px; }
+  .lc-bar[hidden] { display:none; }
+  .lc-bar button { font-size:13px; }
+  .lc-bar .warn { color:var(--warn); }
+  #lc-form { display:flex; gap:8px; align-items:flex-end; padding:10px 14px 14px; border-top:1px solid var(--line); }
+  #lc-input { flex:1; resize:none; max-height:120px; }
+  #lc-form .primary { width:36px; height:36px; border-radius:50%; padding:0; flex:none; }
+  .lc .dots span { display:inline-block; width:6px; height:6px; margin:0 2px; border-radius:50%;
+                   background:var(--muted); animation:lcblink 1.2s infinite; }
+  .lc .dots span:nth-child(2) { animation-delay:.2s; } .lc .dots span:nth-child(3) { animation-delay:.4s; }
+  @keyframes lcblink { 0%, 80%, 100% { opacity:.25; } 40% { opacity:1; } }
+  @media (prefers-reduced-motion: reduce) { .lc .dots span { animation:none; } }
+  @media (max-width: 520px) { .lc { right:8px; bottom:8px; width:calc(100vw - 16px); height:70vh; } }
+</style>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const panel = $("lc"), fab = $("lc-open"), feed = $("lc-feed"), input = $("lc-input");
+  const rows = [...document.querySelectorAll("[data-id]")];
+  const all = rows.map(r => +r.dataset.id);
+  const origin = new Map(rows.map(r => [r, r.nextElementSibling]));  // для «Сбросить»: вернуть исходный порядок
+  const KEY = "lc:" + location.search;  // переписка и фильтр — на эту выборку, до закрытия вкладки
+  let state = { history: [], ids: null };
+
+  function load() { try { return JSON.parse(sessionStorage.getItem(KEY)) || state; } catch { return state; } }
+  function save() { try { sessionStorage.setItem(KEY, JSON.stringify(state)); } catch {} }
+
+  function say(role, text, cls = "") {
+    const div = document.createElement("div");
+    div.className = `lc-m ${role === "user" ? "me" : "bot"} ${cls}`;
+    div.textContent = text;
+    feed.appendChild(div);
+    feed.scrollTop = feed.scrollHeight;
+    return div;
+  }
+
+  function apply(ids) {
+    state.ids = ids;
+    const byId = new Map(rows.map(r => [+r.dataset.id, r]));
+    if (ids === null) {
+      // исходный порядок: вставляем каждую строку перед её прежним соседом, с конца
+      for (const r of [...rows].reverse()) {
+        r.hidden = false;
+        const next = origin.get(r);
+        next ? r.parentNode.insertBefore(r, next) : r.parentNode.appendChild(r);
+      }
+    } else {
+      const keep = new Set(ids);
+      for (const r of rows) r.hidden = !keep.has(+r.dataset.id);
+      for (const id of ids) { const r = byId.get(id); r.parentNode.appendChild(r); }
+    }
+    const shown = ids === null ? all.length : ids.length;
+    $("count").textContent = `${shown} шт.` + (ids === null ? "" : ` из ${all.length} (фильтр чата)`);
+    $("lc-state").textContent = ids === null ? "" : `показано ${shown} из ${all.length}`;
+    const hidden = all.length - shown;
+    $("lc-bar").hidden = ids === null;
+    $("lc-skip").hidden = hidden === 0;
+    $("lc-skip").textContent = `Пометить скрытые пропущенными (${hidden})`;
+  }
+
+  function open(show) {
+    panel.hidden = !show; fab.hidden = show;
+    fab.setAttribute("aria-expanded", String(show));
+    if (show) input.focus();
+  }
+  fab.onclick = () => open(true);
+  $("lc-close").onclick = () => open(false);
+
+  async function ask(text) {
+    say("user", text);
+    $("lc-chips").hidden = true;
+    const wait = say("bot", "");
+    wait.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+    input.disabled = true;
+    try {
+      // Следующий запрос уточняет уже отфильтрованное — как в разговоре
+      const visible = state.ids ?? all;
+      const r = await fetch("/listings/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request: text, ids: visible, history: state.history }) });
+      const data = await r.json();
+      wait.remove();
+      say("bot", data.reply || "Готово.", r.ok ? "" : "err");
+      state.history.push({ role: "user", text }, { role: "bot", text: data.reply || "" });
+      if (r.ok && data.ids) apply(data.ids);
+      save();
+    } catch {
+      wait.remove();
+      say("bot", "Не достучался до бота — он запущен?", "err");
+    } finally {
+      input.disabled = false; input.focus();
+    }
+  }
+
+  $("lc-form").onsubmit = e => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text || input.disabled) return;
+    input.value = ""; input.style.height = "auto";
+    ask(text);
+  };
+  input.addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); $("lc-form").requestSubmit(); }
+  });
+  input.addEventListener("input", () => { input.style.height = "auto"; input.style.height = input.scrollHeight + "px"; });
+  for (const b of $("lc-chips").children) b.onclick = () => ask(b.textContent);
+
+  $("lc-reset").onclick = () => {
+    apply(null);
+    state.history = [];
+    save();
+    say("bot", "Сбросил — снова весь список.");
+    $("lc-chips").hidden = false;
+  };
+  $("lc-skip").onclick = async () => {
+    const keep = new Set(state.ids);
+    const hide = all.filter(id => !keep.has(id));
+    if (!confirm(`Пометить ${hide.length} скрытых объявлений пропущенными? Из списка они уйдут.`)) return;
+    const r = await fetch("/listings/bulk-status", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids: hide }) });
+    if (!r.ok) { say("bot", "Не получилось пометить — подробности в логе бота.", "err"); return; }
+    sessionStorage.removeItem(KEY);
+    location.reload();
+  };
+
+  // Вернуть переписку и фильтр после перезагрузки страницы
+  state = load();
+  for (const h of state.history) say(h.role, h.text);
+  if (state.history.length) { $("lc-chips").hidden = true; open(true); }
+  if (state.ids) apply(state.ids.filter(id => all.includes(id)));
+})();
+</script>
 {% endblock %}
