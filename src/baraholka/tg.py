@@ -8,6 +8,8 @@ from typing import Callable
 
 import httpx
 
+from .market import vs_median
+
 log = logging.getLogger("baraholka")
 # Метка лота в тексте сообщения: по ней понимаю, к какому лоту ответ продавца (reply на карточку или черновик)
 LOT_TAG = re.compile(r"#lot(\d+)")
@@ -28,8 +30,8 @@ class Bot:
         r.raise_for_status()
         return r.json()["result"]
 
-    def send_card(self, row: sqlite3.Row) -> None:
-        text, markup = card(row)
+    def send_card(self, row: sqlite3.Row, market: dict | None = None) -> None:
+        text, markup = card(row, market)
         photos = json.loads(row["photos"])
         if photos:
             self.call("sendPhoto", chat_id=self.chat_id, photo=photos[0], caption=text,
@@ -82,11 +84,14 @@ def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def card(row: sqlite3.Row) -> tuple[str, dict]:
+def card(row: sqlite3.Row, market: dict | None = None) -> tuple[str, dict]:
     price = "БЕСПЛАТНО" if row["is_free"] else f"{row['price_ron']:.0f} lei" if row["price_ron"] is not None else "цена не указана"
+    vs = vs_median(row["price_ron"], market)
     text = (
         f"<b>{_esc(row['title'])}</b>\n"
         f"💰 {price} · 📍 {_esc(row['city'] or '?')} · {row['source']}\n"
+        + (f"📊 медиана {market['median']} lei ({market['n']} шт.)" + (f" · <b>{vs:+d}%</b>" if vs is not None else "") + "\n"
+           if market else "")
         + (f"⭐ <b>{row['llm_score']:.0f}/10</b> — {_esc(row['llm_comment'] or '')}\n" if row["llm_score"] is not None else "")
         + "\n"
         # 500 символов описания держат подпись к фото в лимите Telegram (1024)

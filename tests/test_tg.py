@@ -10,7 +10,7 @@ class FakeBot:
     def __init__(self):
         self.sent = []
 
-    def send_card(self, row):
+    def send_card(self, row, market=None):
         self.sent.append(row["external_id"])
 
 
@@ -41,6 +41,7 @@ def test_card_escapes_html_and_has_buttons(tmp_path):
 
     free = conn.execute("SELECT * FROM listings WHERE external_id = 'free'").fetchone()
     assert "БЕСПЛАТНО" in card(free)[0]
+    assert "📊 медиана 1200 lei (5 шт.) · <b>-25%</b>" in card(row, {"median": 1200, "min": 900, "max": 1500, "n": 5})[0]
 
 
 def test_send_new_skips_stale(tmp_path, monkeypatch):

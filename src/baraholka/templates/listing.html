@@ -10,6 +10,9 @@
       {% if l.is_free %}<span class="free">бесплатно</span>{% elif l.price_ron is not none %}{{ l.price_ron|int }} lei{% else %}цена не указана{% endif %}
       {% if l.llm_score is not none %}<span class="score s{{ (l.llm_score // 1)|int }}">{{ l.llm_score|round|int }}/10</span>{% endif %}
     </div>
+    {% if l.market %}<div class="mkt">📊 такие же в базе за 60 дней: медиана <b>{{ l.market.median }}</b> lei,
+      от {{ l.market.min }} до {{ l.market.max }}, {{ l.market.n }} шт.{% if l.vs is not none %} · этот
+      <span class="{{ 'down' if l.vs <= -15 else ('up' if l.vs > 0 else '') }}">{{ '%+d'|format(l.vs) }}%</span>{% endif %}</div>{% endif %}
     <div class="muted">{{ l.city or 'город не указан' }} · {{ l.source }} · <span class="pill">{{ statuses.get(l.status, l.status) }}</span></div>
     {% if l.llm_comment %}<p class="muted">{{ l.llm_comment }}</p>{% endif %}
     <a href="{{ l.url }}" target="_blank" rel="noopener">Открыть на {{ l.source }} ↗</a>

@@ -6,6 +6,7 @@ import sqlite3
 from datetime import datetime, time as dtime
 from pathlib import Path
 
+from .market import model_key
 from .models import Listing
 
 SCHEMA = """
@@ -27,6 +28,7 @@ CREATE TABLE IF NOT EXISTS listings (
     llm_score    REAL,
     llm_comment  TEXT,
     max_offer_ron REAL,  -- «торгуюсь до» для этого лота; пусто — до цены продавца
+    model        TEXT,  -- ключ модели для статистики цен (market.model_key); '' — не распознан
     UNIQUE (source, external_id)
 );
 
@@ -92,6 +94,7 @@ MIGRATIONS = [
     ("messages", "flags", "TEXT NOT NULL DEFAULT '[]'"),
     ("messages", "sent", "INTEGER NOT NULL DEFAULT 0"),
     ("messages", "prompt", "TEXT NOT NULL DEFAULT ''"),
+    ("listings", "model", "TEXT"),
 ]
 
 # Как пишут продавцы на OLX; «calculator» в одиночку ловит и калькуляторы, поэтому только в связках
@@ -148,6 +151,10 @@ def connect(path: Path) -> sqlite3.Connection:
     for table, col, decl in MIGRATIONS:
         if col not in {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
+    conn.execute("CREATE INDEX IF NOT EXISTS listings_model ON listings (model)")
+    # Модель — для старых строк и после правки распознавания (обнулить model — пересчитается при запуске)
+    todo = conn.execute("SELECT id, title FROM listings WHERE model IS NULL").fetchall()
+    conn.executemany("UPDATE listings SET model = ? WHERE id = ?", [(model_key(t) or "", i) for i, t in todo])
     # Первый запуск: старые MAX_PRICE_RON / POLL_INTERVAL_MIN из .env становятся начальными значениями
     seeds = {k: os.getenv(k.upper(), v) for k, v in DEFAULT_SETTINGS.items()}
     conn.executemany("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", seeds.items())
@@ -177,8 +184,8 @@ def insert_if_new(conn: sqlite3.Connection, lot: Listing) -> int | None:
     """Сохраняет объявление. Возвращает id новой строки или None, если уже видели."""
     cur = conn.execute(
         """INSERT OR IGNORE INTO listings
-           (source, external_id, title, url, price_ron, is_free, description, city, photos, posted_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (source, external_id, title, url, price_ron, is_free, description, city, photos, posted_at, model)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             lot.source,
             lot.external_id,
@@ -190,6 +197,7 @@ def insert_if_new(conn: sqlite3.Connection, lot: Listing) -> int | None:
             lot.city,
             json.dumps(lot.photos),
             lot.posted_at.isoformat() if lot.posted_at else None,
+            model_key(lot.title) or "",
         ),
     )
     conn.commit()

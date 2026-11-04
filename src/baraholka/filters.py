@@ -54,9 +54,13 @@ SYSTEM = ["unitate", "pc", "calculator", "sistem", "desktop", "server", "worksta
 TEXT_BLOCK = ["nu porneste", "nu functioneaza", "nu da imagine", "pentru piese", "nefunctional"]
 
 
+# Буквы, которые NFKD не раскладывает на «букву + знак»: польские «ł», хорватские «đ» и т.п. (Vinted — вся ЕС)
+_LETTERS = str.maketrans({"ł": "l", "đ": "d", "ø": "o", "ß": "ss", "æ": "ae", "œ": "oe"})
+
+
 def fold(s: str) -> str:
-    """Нижний регистр без диакритики: «Placă» == «placa»."""
-    return "".join(c for c in unicodedata.normalize("NFKD", s.lower()) if not unicodedata.combining(c))
+    """Нижний регистр без диакритики: «Placă» == «placa», «Płyta» == «plyta»."""
+    return "".join(c for c in unicodedata.normalize("NFKD", s.lower().translate(_LETTERS)) if not unicodedata.combining(c))
 
 
 def _words(words: list[str]) -> re.Pattern:

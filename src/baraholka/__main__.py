@@ -11,6 +11,7 @@ import httpx
 from . import agent, db, web
 from .config import load_settings
 from .filters import passes_rules
+from .market import for_listings
 from .sources import SOURCES
 from .tg import Bot
 
@@ -62,7 +63,7 @@ def send_new(bot: Bot, conn) -> None:
             continue  # остальные свежие уйдут в следующий проход
         else:
             try:
-                bot.send_card(row)
+                bot.send_card(row, for_listings(conn, [row]).get(row["id"]))
                 status, sent = "sent", sent + 1
             except httpx.HTTPError:
                 log.exception("Не отправилась карточка %s", row["url"])

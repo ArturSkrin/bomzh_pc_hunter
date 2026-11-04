@@ -221,3 +221,23 @@ def test_text_matches_any_query():
     assert agent.text_matches("Procesor Intel Coffee Lake, Core i9 9900K 3.6GHz", qs)
     assert not agent.text_matches("Motor Scania DC9 9900 ore", qs)
     assert not agent.text_matches("Cooler Procesor Corsair Hydro", qs)
+
+
+def test_draft_may_cite_market_only_with_real_comparables(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "mk.db")
+    lid = db.insert_if_new(conn, Listing("olx", "me", "Placa video RX 580 8GB", "https://x/me", 300))
+    text = "Am văzut altele la 250 lei, ați lua 250?"
+    seen = []
+    # при нарушении к запросу дописывается «перепиши: …» — берём только JSON в начале
+    monkeypatch.setattr(agent, "llm_json", lambda m, s, u: seen.append(json.JSONDecoder().raw_decode(u)[0])
+                        or {"text": text, "offer_ron": 250})
+    m = agent.draft_reply(conn, "m", lid, "bargain")
+    assert {f["rule"] for f in json.loads(m["flags"])} == {"made_up"}  # похожих нет — ссылка на рынок выдумана
+    assert "market" not in seen[0]["listing"]
+
+    for i, p in enumerate([240, 260, 280]):
+        db.insert_if_new(conn, Listing("olx", str(i), "RX 580 8GB Sapphire", f"https://x/{i}", p))
+    seen.clear()
+    m = agent.draft_reply(conn, "m", lid, "bargain")
+    assert json.loads(m["flags"]) == []
+    assert seen[0]["listing"]["market"]["median_lei"] == 260  # свой лот в статистику не входит

@@ -12,6 +12,7 @@ import litellm
 
 from . import db, guards
 from .filters import fold, is_broken
+from .market import for_listings, stats, vs_median
 from .sources import SOURCES
 
 log = logging.getLogger("baraholka")
@@ -49,7 +50,13 @@ EVAL_FORMAT = """
 kind: pc — готовый компьютер (системник, мини-ПК, сервер, рабочая станция); laptop — ноутбук;
 part — комплектующие (процессор, материнка, память, видеокарта, диск, БП, связки и лоты); other — всё остальное.
 Только для pc: resale_ron и comment (по-русски, до 140 символов: конфиг, за сколько уйдёт, в чём выгода или риск).
-Для остальных resale_ron = null, comment = "" — только оценка, без пояснений."""
+Для остальных resale_ron = null, comment = "" — только оценка, без пояснений.
+
+market (если есть) — реальные цены такой же модели из нашей базы за последние 60 дней (OLX, lajumate, Vinted):
+медиана, минимум, сколько объявлений, и vs_median — на сколько % этот лот дешевле (−) или дороже (+) медианы.
+Это главный ориентир, важнее твоей памяти о ценах: resale_ron ≈ медиана, выгодность — по vs_median
+(около медианы и дороже — это рынок, не выше 4; −20% и ниже — уже интересно; −40% и ниже — отлично).
+Без market — оценивай по памяти, но осторожнее: без явной находки не выше 7."""
 EVAL_BATCH = 30  # объявлений в одном запросе к LLM
 LAPTOP_MIN_SCORE = 10  # ноутбуками почти не занимаюсь — только если прям подарок
 
@@ -172,11 +179,14 @@ def evaluate_new(conn: sqlite3.Connection, model: str, prompt: str, min_score: f
     done = 0
     for i in range(0, len(fresh), EVAL_BATCH):
         batch = {str(r["id"]): r for r in fresh[i:i + EVAL_BATCH]}
-        brief = [
-            {"id": k, "title": r["title"], "price_lei": r["price_ron"], "free": bool(r["is_free"]),
-             "city": r["city"] or "?", "source": r["source"], "description": r["description"][:400]}
-            for k, r in batch.items()
-        ]
+        market = for_listings(conn, batch.values())
+        brief = []
+        for k, r in batch.items():
+            item = {"id": k, "title": r["title"], "price_lei": r["price_ron"], "free": bool(r["is_free"]),
+                    "city": r["city"] or "?", "source": r["source"], "description": r["description"][:400]}
+            if m := market.get(r["id"]):
+                item["market"] = {**m, "model": r["model"], "vs_median": vs_median(r["price_ron"], m)}
+            brief.append(item)
         answer = llm_json(model, prompt + EVAL_FORMAT, json.dumps(brief, ensure_ascii=False))
         for item in answer.get("items", []):
             r = batch.get(str(item.get("id")))  # id только из нашей пачки
@@ -211,7 +221,8 @@ DRAFT_RULES = """
 Задача: {goal}
 1–2 коротких предложения. Ничего не добавляй сверх задачи и не спрашивай то, что есть в описании.
 Цена — не выше {ceiling} lei. Курьер — только с оплатой при получении (ramburs).
-Нельзя: предоплата и оплата по ссылке; мой телефон, адрес, встреча; ссылки на «рынок»; выдуманные факты.
+Нельзя: предоплата и оплата по ссылке; мой телефон, адрес, встреча; выдуманные факты.
+Ссылка на рынок («на OLX такие по …») — только если в listing есть market, и только его цифрами (медиана, минимум).
 JSON: {{"text": "на румынском", "note": "перевод на русский", "offer_ron": цена из сообщения числом или null}}"""
 
 GOALS = {
@@ -253,6 +264,10 @@ def draft_reply(conn: sqlite3.Connection, model: str, lid: int, goal: str, text:
                                      "ORDER BY id", (lid,))]
     lot = {"title": row["title"], "price_lei": row["price_ron"], "free": bool(row["is_free"]), "city": row["city"],
            "site": row["source"], "description": row["description"][:1500]}
+    market = for_listings(conn, [row]).get(lid)
+    if market:  # реальные похожие объявления — только тогда торг может на них ссылаться
+        lot["market"] = {"median_lei": market["median"], "min_lei": market["min"], "listings": market["n"],
+                         "period": "последние 60 дней, OLX/lajumate/Vinted"}
     system = db.get_setting(conn, "llm_bargain_prompt") + DRAFT_RULES.format(goal=GOALS[goal], ceiling=f"{ceiling:.0f}")
     payload = {"listing": lot, "conversation": history}
     instruction = text if goal == "say" else None
@@ -263,7 +278,7 @@ def draft_reply(conn: sqlite3.Connection, model: str, lid: int, goal: str, text:
     for attempt in range(2):
         answer = llm_json(model, system, user)
         draft, note = str(answer.get("text") or "").strip(), str(answer.get("note") or "")[:500]
-        violations = guards.check_draft(draft, ceiling, has_comparables=False)
+        violations = guards.check_draft(draft, ceiling, has_comparables=bool(market))
         offer = answer.get("offer_ron")
         if isinstance(offer, (int, float)):
             try:

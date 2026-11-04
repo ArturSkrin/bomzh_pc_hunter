@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 from flask import Flask, abort, g, jsonify, make_response, redirect, render_template, request, url_for
 
 from . import agent, db
+from .market import for_listings, vs_median
 
 app = Flask(__name__)
 log = logging.getLogger("baraholka")
@@ -110,9 +111,12 @@ def listings():
         f"SELECT * FROM {table} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT 300", params
     ).fetchall()
     lots = []
+    market = for_listings(conn(), rows)
     for r in rows:
         photo = (json.loads(r["photos"]) or [""])[0]
-        lots.append(dict(r, photo=photo, thumb=photo.replace("800x600", "200x150")))
+        m = market.get(r["id"])
+        lots.append(dict(r, photo=photo, thumb=photo.replace("800x600", "200x150"),
+                         market=m, vs=vs_median(r["price_ron"], m)))
     base_params = [search["id"]] if search else []
     counts = dict(conn().execute(f"SELECT status, count(*) FROM {table} GROUP BY status", base_params).fetchall())
     sources = [r[0] for r in conn().execute(f"SELECT DISTINCT source FROM {table}", base_params)]
@@ -232,8 +236,10 @@ def listing(lid):
         abort(404)
     msgs = [dict(m, flags=json.loads(m["flags"]))
             for m in conn().execute("SELECT * FROM messages WHERE listing_id = ? ORDER BY id", (lid,))]
+    m = for_listings(conn(), [row]).get(lid)
     return render_template(
-        "listing.html", l=dict(row, photos=json.loads(row["photos"])), msgs=msgs, statuses=STATUSES,
+        "listing.html", l=dict(row, photos=json.loads(row["photos"]), market=m, vs=vs_median(row["price_ron"], m)),
+        msgs=msgs, statuses=STATUSES,
         ceiling=agent.lot_ceiling(conn(), row), error=request.args.get("error"),
     )
 
