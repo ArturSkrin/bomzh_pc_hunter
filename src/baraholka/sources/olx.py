@@ -35,13 +35,14 @@ def _browser_page():
     return _page
 
 
-def fetch(client: httpx.Client, query: str, max_price: float | None = None) -> list[Listing]:
-    return _browser_thread.submit(_fetch, query, max_price).result(timeout=120)
+def fetch(client: httpx.Client, query: str, max_price: float | None = None, cheapest: bool = False) -> list[Listing]:
+    return _browser_thread.submit(_fetch, query, max_price, cheapest).result(timeout=120)
 
 
-def _fetch(query: str, max_price: float | None) -> list[Listing]:
-    # shortcut: только первая страница (40 свежих), хватает при опросе раз в 10–15 мин
-    params = {"query": query, "sort_by": "created_at:desc", "limit": 40}
+def _fetch(query: str, max_price: float | None, cheapest: bool = False) -> list[Listing]:
+    # shortcut: только первая страница (40 свежих или дешёвых), хватает при опросе раз в 10–15 мин
+    sort = "filter_float_price:asc" if cheapest else "created_at:desc"
+    params = {"query": query, "sort_by": sort, "limit": 40}
     if max_price is not None:
         params["filter_float_price:to"] = int(max_price)
     url = API + "?" + urlencode(params)

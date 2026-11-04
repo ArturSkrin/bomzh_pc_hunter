@@ -86,7 +86,9 @@ def listings():
         if not search:
             abort(404)
         if "sort" not in request.args:
-            sort = "score"  # в списке поиска сначала то, что лучше подходит
+            # в списке поиска сначала то, что лучше подходит; для «N самых дешёвых» — дешёвые
+            cheapest = json.loads(search["plan"]).get("cheapest")
+            sort, desc = ("price", False) if cheapest else ("score", True)
     table, params = listings_source(search)
     where = ["1"]
     if f["status"]:
@@ -161,8 +163,7 @@ def listings_search():
         abort(400)
     s = app.config["SETTINGS"]
     try:
-        sid = agent.run_search(conn(), text, s.llm_model, s.request_delay_sec,
-                               float(db.get_setting(conn(), "max_price_ron")))
+        sid = agent.run_search(conn(), text, s.llm_model, s.request_delay_sec)
     except Exception as e:
         log.exception("Поиск из чата упал")
         return jsonify({"error": type(e).__name__}), 502
@@ -260,8 +261,7 @@ def do_search():
     s = app.config["SETTINGS"]
     try:
         # shortcut: синхронно, страница ждёт ~1 минуту; фон + опрос — если станет мешать
-        sid = agent.run_search(conn(), text, s.llm_model, s.request_delay_sec,
-                               float(db.get_setting(conn(), "max_price_ron")))
+        sid = agent.run_search(conn(), text, s.llm_model, s.request_delay_sec)
     except Exception as e:
         log.exception("Поиск упал")
         # Текст ошибки в URL не кладём — у LLM-библиотек туда может попасть кусок ключа

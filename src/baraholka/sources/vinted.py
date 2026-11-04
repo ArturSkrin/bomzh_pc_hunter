@@ -22,8 +22,8 @@ _http = httpx.Client(timeout=30, follow_redirects=True, headers={
 })
 
 
-def fetch(client: httpx.Client, query: str, max_price: float | None = None) -> list[Listing]:
-    params = {"search_text": query, "order": "newest_first"}
+def fetch(client: httpx.Client, query: str, max_price: float | None = None, cheapest: bool = False) -> list[Listing]:
+    params = {"search_text": query, "order": "price_low_to_high" if cheapest else "newest_first"}
     if max_price is not None:
         params["price_to"] = int(max_price)
     r = _http.get(f"{BASE}/catalog", params=params)

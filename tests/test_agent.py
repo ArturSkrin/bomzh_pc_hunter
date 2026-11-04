@@ -5,7 +5,7 @@ from baraholka.models import Listing
 
 LOTS = [
     Listing("olx", "1", "Dell U2722D 27 QHD", "https://x/1", 920, photos=["https://img/1;s=800x600"]),
-    Listing("olx", "2", "Samsung Odyssey G5 27 curbat", "https://x/2", 800),
+    Listing("olx", "2", "Samsung Odyssey G5 27 curbat", "https://x/2", 800, description="Monitor gaming 27 QHD"),
     Listing("olx", "3", "Monitor 24 FHD", "https://x/3", 300),
 ]
 
@@ -13,7 +13,7 @@ LOTS = [
 def test_run_search(tmp_path, monkeypatch):
     calls = []
 
-    def fake_fetch(client, query, max_price=None):
+    def fake_fetch(client, query, max_price=None, cheapest=False):
         calls.append((query, max_price))
         return LOTS
 
@@ -31,16 +31,16 @@ def test_run_search(tmp_path, monkeypatch):
     monkeypatch.setattr(agent, "SOURCES", {"olx": fake_fetch})
 
     conn = db.connect(tmp_path / "a.db")
-    sid = agent.run_search(conn, "монитор 27 QHD с регулировкой высоты до 1000", "m", 0, 200)
+    sid = agent.run_search(conn, "монитор 27 QHD с регулировкой высоты до 1000", "m", 0)
 
-    # «1000 lei» не число — берём потолок из настроек, но поиск не падает
-    assert calls == [("monitor 27 qhd", 200), ("dell u2722d", 200)]
+    # «1000 lei» не число — без потолка, но поиск не падает
+    assert calls == [("monitor 27 qhd", None), ("dell u2722d", None)]
     row = conn.execute("SELECT * FROM searches WHERE id = ?", (sid,)).fetchone()
     results = json.loads(row["results"])
     assert [r["url"] for r in results] == ["https://x/1", "https://x/2"]  # match выше unclear, выдуманный id отброшен
     assert results[1]["score"] == 10  # оценка зажата в 0–10
     assert results[0]["thumb"] == "https://img/1;s=200x150"
-    assert row["candidates"] == 3
+    assert row["candidates"] == 2  # «Monitor 24 FHD» не содержит слов ни одной фразы — отсечён до нейронки
     # Найденное через поиск не должно улететь в Telegram как «новое»
     assert {r[0] for r in conn.execute("SELECT status FROM listings")} == {"search"}
     items = conn.execute("SELECT verdict, score FROM search_items WHERE search_id = ? ORDER BY score DESC", (sid,)).fetchall()
@@ -160,8 +160,8 @@ def test_search_links_existing_listing(tmp_path, monkeypatch):
     conn.execute("UPDATE listings SET status = 'sent' WHERE id = ?", (old,))
     answers = iter([{"queries": ["dell"]}, {"matches": [{"id": "olx:1", "verdict": "match", "score": 8, "why": "да"}]}])
     monkeypatch.setattr(agent, "llm_json", lambda *a, **kw: next(answers))
-    monkeypatch.setattr(agent, "SOURCES", {"olx": lambda c, q, max_price=None: LOTS[:1]})
-    sid = agent.run_search(conn, "dell", "m", 0, 200)
+    monkeypatch.setattr(agent, "SOURCES", {"olx": lambda c, q, max_price=None, cheapest=False: LOTS[:1]})
+    sid = agent.run_search(conn, "dell", "m", 0)
     # уже был в главном — там и остаётся, а в список поиска попадает тоже
     assert conn.execute("SELECT listing_id FROM search_items WHERE search_id = ?", (sid,)).fetchone()[0] == old
     assert conn.execute("SELECT status FROM listings WHERE id = ?", (old,)).fetchone()[0] == "sent"
@@ -176,7 +176,7 @@ def test_list_chat_turns_find_into_search(tmp_path, monkeypatch):
 def test_search_candidates_shared_between_sources(tmp_path, monkeypatch):
     conn = db.connect(tmp_path / "c.db")
     many = [Listing("olx", str(i), f"GPU {i}", f"https://o/{i}", 100) for i in range(200)]
-    few = [Listing("vinted", "v1", "GPU vinted", "https://v/1", 100)]
+    few = [Listing("vinted", "v1", "GPU vinted", "https://v/1", 100)]  # «gpu» в заголовке у всех
     seen = {}
     answers = iter([{"queries": ["gpu"]}, {"matches": []}])
 
@@ -188,8 +188,36 @@ def test_search_candidates_shared_between_sources(tmp_path, monkeypatch):
         return next(answers)
 
     monkeypatch.setattr(agent, "llm_json", fake)
-    monkeypatch.setattr(agent, "SOURCES", {"olx": lambda c, q, max_price=None: many,
-                                           "vinted": lambda c, q, max_price=None: few})
-    agent.run_search(conn, "gpu", "m", 0, 200)
+    monkeypatch.setattr(agent, "SOURCES", {"olx": lambda c, q, max_price=None, cheapest=False: many,
+                                           "vinted": lambda c, q, max_price=None, cheapest=False: few})
+    agent.run_search(conn, "gpu", "m", 0)
     ids = [b["id"] for b in seen["brief"]]
     assert len(ids) == agent.MAX_CANDIDATES and "vinted:v1" in ids  # vinted не вытеснен OLX
+
+
+def test_search_cheapest_n_without_price_cap(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "n.db")
+    cpus = [Listing("olx", str(p), f"i9 9900K #{p}", f"https://o/{p}", p) for p in (1500, 900, 1200, 1100)]
+    calls = []
+
+    def fetch(c, q, max_price=None, cheapest=False):
+        calls.append((max_price, cheapest))
+        return cpus
+
+    answers = iter([{"queries": ["i9 9900k"], "max_price": None, "cheapest": 2},
+                    {"matches": [{"id": f"olx:{p}", "verdict": "unclear" if p == 900 else "match", "score": 8, "why": ""}
+                                 for p in (1500, 900, 1200, 1100)]}])
+    monkeypatch.setattr(agent, "llm_json", lambda *a, **kw: next(answers))
+    monkeypatch.setattr(agent, "SOURCES", {"olx": fetch})
+    sid = agent.run_search(conn, "20 самых дешёвых i9 9900K", "m", 0)
+    assert calls == [(None, True), (None, False)]  # без потолка; и дешёвые, и свежие
+    prices = [r[0] for r in conn.execute(
+        "SELECT l.price_ron FROM search_items si JOIN listings l ON l.id = si.listing_id WHERE search_id = ? ORDER BY l.price_ron", (sid,))]
+    assert prices == [1100, 1200]  # точно подходящие дешевле «уточнить» за 900
+
+
+def test_text_matches_any_query():
+    qs = ["i9 9900k", "procesor i9-9900K"]
+    assert agent.text_matches("Procesor Intel Coffee Lake, Core i9 9900K 3.6GHz", qs)
+    assert not agent.text_matches("Motor Scania DC9 9900 ore", qs)
+    assert not agent.text_matches("Cooler Procesor Corsair Hydro", qs)

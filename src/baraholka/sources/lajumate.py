@@ -32,13 +32,14 @@ _http = httpx.Client(timeout=20, follow_redirects=True, headers={
 _cache: tuple[float, list[Listing]] = (0.0, [])
 
 
-def fetch(client: httpx.Client, query: str, max_price: float | None = None) -> list[Listing]:
+def fetch(client: httpx.Client, query: str, max_price: float | None = None, cheapest: bool = False) -> list[Listing]:
     words = _fold(query).split()
-    return [
+    lots = [
         lot for lot in _latest()
         if all(re.search(rf"\b{re.escape(w)}", _fold(f"{lot.title} {lot.description}")) for w in words)
         and (max_price is None or lot.is_free or (lot.price_ron is not None and lot.price_ron <= max_price))
     ]
+    return sorted(lots, key=lambda l: l.price_ron if l.price_ron is not None else float("inf")) if cheapest else lots
 
 
 def _latest() -> list[Listing]:

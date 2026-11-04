@@ -153,7 +153,7 @@ def test_search_list_separate_from_main(client, monkeypatch):
     answers = iter([{"queries": ["monitor"], "summary": "монитор 27"},
                     {"matches": [{"id": "vinted:7", "verdict": "match", "score": 9, "why": "QHD, высота"}]}])
     monkeypatch.setattr(agent, "llm_json", lambda *a, **kw: next(answers))
-    monkeypatch.setattr(agent, "SOURCES", {"vinted": lambda c, q, max_price=None: [found]})
+    monkeypatch.setattr(agent, "SOURCES", {"vinted": lambda c, q, max_price=None, cheapest=False: [found]})
     monkeypatch.setattr(agent.time, "sleep", lambda s: None)
 
     data = client.post("/listings/search", json={"request": "найди монитор 27"}).get_json()

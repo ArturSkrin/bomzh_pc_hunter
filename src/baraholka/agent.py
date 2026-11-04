@@ -1,6 +1,7 @@
 """Поиск из чата: LLM превращает запрос в поисковые фразы, бот ищет по сайтам, LLM отбирает подходящее."""
 
 import json
+import re
 import logging
 import sqlite3
 import time
@@ -10,7 +11,7 @@ from datetime import datetime, timedelta, timezone
 import litellm
 
 from . import db, guards
-from .filters import is_broken
+from .filters import fold, is_broken
 from .sources import SOURCES
 
 log = logging.getLogger("baraholka")
@@ -19,7 +20,10 @@ MAX_CANDIDATES = 80  # больше в один запрос к LLM не шлё�
 
 PLAN_PROMPT = """Ты помогаешь искать б/у товары на румынских барахолках (OLX.ro и подобных).
 По запросу пользователя верни JSON:
-{"queries": [...], "max_price": число в лей или null, "must": [...], "nice": [...], "summary": "..."}
+{"queries": [...], "max_price": число в лей или null, "cheapest": N или null, "must": [...], "nice": [...],
+"summary": "..."}
+- max_price: только если пользователь сам назвал цену, иначе null — без потолка.
+- cheapest: если просят «N самых дешёвых» — это N (просто «самые дешёвые» — 20), иначе null.
 - queries: 4–8 коротких поисковых фраз по 1–4 слова. Сайт ищет по совпадению слов, длинные фразы ничего не находят.
   Смешай общие фразы на румынском (как пишут продавцы) и названия конкретных моделей, которые точно подходят
   под обязательные требования.
@@ -61,23 +65,40 @@ def llm_json(model: str, system: str, user: str, **extra) -> dict:
     return json.loads(resp.choices[0].message.content)
 
 
-def run_search(conn: sqlite3.Connection, request: str, model: str, delay_sec: float, default_max_price: float) -> int:
-    """Выполняет поиск, сохраняет его в историю, возвращает id поиска."""
+def _tokens(text: str) -> set[str]:
+    return set(re.findall(r"[a-z0-9]+", fold(text)))
+
+
+def text_matches(text: str, queries: list[str]) -> bool:
+    """В тексте (заголовок + описание) есть все слова хотя бы одной поисковой фразы. Поиск OLX нечёткий:
+    на «i9 9900k» отдаёт и автосервисы, и моторы Scania, где просто встречается «9900»."""
+    words = _tokens(text)
+    return any(_tokens(q) <= words for q in queries if _tokens(q))
+
+
+def run_search(conn: sqlite3.Connection, request: str, model: str, delay_sec: float) -> int:
+    """Выполняет поиск, сохраняет его в историю, возвращает id поиска.
+    Цену не назвал — без потолка: общий max_price_ron только для автосбора и торга, не для моих запросов."""
     plan = llm_json(model, PLAN_PROMPT, request)
     queries = [q for q in plan.get("queries", []) if isinstance(q, str) and q.strip()][:8]
     try:
         max_price = float(plan["max_price"])
     except (KeyError, TypeError, ValueError):
-        max_price = default_max_price
-    log.info("Поиск %r: %s, до %s lei", request, queries, max_price)
+        max_price = None
+    cheapest = plan.get("cheapest") if isinstance(plan.get("cheapest"), int) and plan["cheapest"] > 0 else None
+    log.info("Поиск %r: %s, до %s lei%s", request, queries, max_price or "∞",
+             f", {cheapest} самых дешёвых" if cheapest else "")
 
     candidates = {}
     for name, fetch in SOURCES.items():
         for q in queries:
             try:
-                for lot in fetch(None, q, max_price=max_price):
-                    if not is_broken(lot):  # битое отсекаем кодом: судья-нейронка его иногда пропускает
-                        candidates.setdefault(f"{lot.source}:{lot.external_id}", lot)
+                # «Самые дешёвые» — и дешёвые, и свежие: дешёвую выдачу площадки забивают мусором с похожими словами
+                for order in ((True, False) if cheapest else (False,)):
+                    for lot in fetch(None, q, max_price=max_price, cheapest=order):
+                        # битое и нерелевантное — кодом: судья-нейронка его иногда пропускает, а лимит кандидатов не резиновый
+                        if not is_broken(lot) and text_matches(f"{lot.title} {lot.description}", queries):
+                            candidates.setdefault(f"{lot.source}:{lot.external_id}", lot)
             except Exception:
                 log.exception("%s: %r упал", name, q)
             time.sleep(delay_sec)
@@ -111,20 +132,27 @@ def run_search(conn: sqlite3.Connection, request: str, model: str, delay_sec: fl
             else:
                 lid = conn.execute("SELECT id FROM listings WHERE source = ? AND external_id = ?",
                                    (lot.source, lot.external_id)).fetchone()[0]
-            linked.append((lid, m["verdict"], score, str(m.get("why", ""))))
+            linked.append((lid, m["verdict"], score, str(m.get("why", "")), lot.url))
             results.append({
                 "title": lot.title, "url": lot.url, "price_ron": lot.price_ron, "is_free": lot.is_free,
                 "city": lot.city, "thumb": (lot.photos or [""])[0].replace("800x600", "200x150"),
                 "verdict": m["verdict"], "score": score, "why": str(m.get("why", "")),
             })
     results.sort(key=lambda r: (r["verdict"] == "match", r["score"]), reverse=True)
+    if cheapest:
+        # «N самых дешёвых» — из того, что точно подходит; «уточнить» только если подходящих не хватило
+        def by_price(r):
+            return (r["verdict"] != "match", r["price_ron"] if r["price_ron"] is not None else float("inf"))
+        keep = {r["url"] for r in sorted(results, key=by_price)[:cheapest]}
+        results = sorted((r for r in results if r["url"] in keep), key=by_price)
+        linked = [x for x in linked if x[4] in keep]
 
     cur = conn.execute(
         "INSERT INTO searches (request, plan, results, candidates) VALUES (?, ?, ?, ?)",
         (request, json.dumps(plan, ensure_ascii=False), json.dumps(results, ensure_ascii=False), len(lots)),
     )
     conn.executemany("INSERT OR IGNORE INTO search_items (search_id, listing_id, verdict, score, why) VALUES (?, ?, ?, ?, ?)",
-                     [(cur.lastrowid, *item) for item in linked])
+                     [(cur.lastrowid, *item[:4]) for item in linked])
     conn.commit()
     return cur.lastrowid
 
