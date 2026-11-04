@@ -125,6 +125,7 @@ def listings():
     resp = make_response(render_template(
         "listings.html", lots=lots, f=f, counts=counts, sources=sources, statuses=STATUSES,
         sorts=SORTS, sort=sort, desc=desc, view=view, search=search, lists=lists,
+        chat=conn().execute("SELECT * FROM (SELECT * FROM list_chat ORDER BY id DESC LIMIT 100) ORDER BY id").fetchall(),
     ))
     if request.args.get("view") == view:
         resp.set_cookie("view", view, max_age=365 * 24 * 3600, samesite="Lax")
@@ -141,23 +142,38 @@ def set_status(lid):
     return redirect(request.referrer or url_for("listings"))
 
 
+CHAT_CONTEXT = 6  # сколько последних реплик нейронка видит как контекст («то же, но до 500»)
+
+
+def chat_say(role: str, text: str, link: str = "", error: bool = False) -> None:
+    conn().execute("INSERT INTO list_chat (role, text, link, error) VALUES (?, ?, ?, ?)", (role, text, link, int(error)))
+    conn().commit()
+
+
 @app.post("/listings/chat")
 def listings_chat():
     data = request.get_json(silent=True) or {}
     text = str(data.get("request", "")).strip()
     if not text or not isinstance(data.get("ids"), list):
         abort(400)
+    history = [dict(r) for r in conn().execute(
+        "SELECT role, text FROM list_chat WHERE error = 0 ORDER BY id DESC LIMIT ?", (CHAT_CONTEXT,))][::-1]
+    chat_say("user", text)
     try:
-        return jsonify(agent.list_chat(conn(), app.config["SETTINGS"].llm_model, text, data["ids"],
-                                       data.get("history") or []))
+        out = agent.list_chat(conn(), app.config["SETTINGS"].llm_model, text, data["ids"], history)
     except Exception as e:
         log.exception("Чат по списку упал")
-        return jsonify({"ids": None, "reply": f"Не получилось ({type(e).__name__}), подробности в логе бота."}), 502
+        reply = f"Не получилось ({type(e).__name__}), подробности в логе бота."
+        chat_say("bot", reply, error=True)
+        return jsonify({"ids": None, "search": None, "reply": reply}), 502
+    chat_say("bot", out["reply"] or "Готово.")
+    return jsonify(out)
 
 
 @app.post("/listings/search")
 def listings_search():
-    # Поиск из чата: 1–2 минуты, страница ждёт с индикатором; результат — отдельный список
+    # Поиск из чата: 1–2 минуты, страница ждёт с индикатором; результат — отдельный список.
+    # Итог пишем в переписку на сервере: обновил страницу во время поиска — сообщение всё равно будет
     text = str((request.get_json(silent=True) or {}).get("request", "")).strip()
     if not text:
         abort(400)
@@ -166,9 +182,22 @@ def listings_search():
         sid = agent.run_search(conn(), text, s.llm_model, s.request_delay_sec)
     except Exception as e:
         log.exception("Поиск из чата упал")
+        chat_say("bot", f"Поиск не получился ({type(e).__name__}), подробности в логе бота.", error=True)
         return jsonify({"error": type(e).__name__}), 502
     count = conn().execute("SELECT count(*) FROM search_items WHERE search_id = ?", (sid,)).fetchone()[0]
-    return jsonify({"id": sid, "count": count, "url": url_for("listings", search=sid)})
+    url = url_for("listings", search=sid)
+    if count:
+        chat_say("bot", f"Нашёл {count} — отдельным списком, в главный не добавлял.", link=url)
+    else:
+        chat_say("bot", "Ничего подходящего не нашлось.")
+    return jsonify({"id": sid, "count": count, "url": url})
+
+
+@app.post("/listings/chat/reset")
+def reset_chat():
+    conn().execute("DELETE FROM list_chat")
+    conn().commit()
+    return "", 204
 
 
 @app.post("/listings/search/<int:sid>/delete")
@@ -181,7 +210,9 @@ def delete_search(sid):
                  AND id NOT IN (SELECT listing_id FROM search_items)
                  AND id NOT IN (SELECT listing_id FROM messages)""")
     c.commit()
-    return redirect(url_for("listings"))
+    # Удалил с чужой страницы — остаюсь там; удалил открытый список — на главный
+    back = request.referrer or ""
+    return redirect(url_for("listings") if f"search={sid}" in back or not back else back)
 
 
 @app.post("/listings/bulk-status")

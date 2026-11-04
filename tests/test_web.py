@@ -168,3 +168,18 @@ def test_search_list_separate_from_main(client, monkeypatch):
     conn = db.connect(app.config["DB_PATH"])
     assert conn.execute("SELECT count(*) FROM listings WHERE title = 'Monitor Dell 27 QHD'").fetchone()[0] == 0
     assert conn.execute("SELECT count(*) FROM listings WHERE title LIKE 'RTX%'").fetchone()[0] == 1  # главный не тронут
+
+
+def test_chat_history_persists_and_resets(client, monkeypatch):
+    from baraholka import agent
+    from types import SimpleNamespace
+    app.config["SETTINGS"] = SimpleNamespace(llm_model="m")
+    seen = []
+    monkeypatch.setattr(agent, "llm_json", lambda m, s, u, **kw: seen.append(u) or {"ids": None, "reply": "ответ <b>"})
+    client.post("/listings/chat", json={"request": "убери HDD", "ids": [1]})
+    client.post("/listings/chat", json={"request": "а теперь до 100", "ids": [1]})
+    assert "убери HDD" in seen[1]  # прошлая реплика ушла нейронке как контекст — из базы, а не из браузера
+    html = client.get("/?sort=price").get_data(as_text=True)  # другая выборка — переписка та же
+    assert "а теперь до 100" in html and "ответ &lt;b&gt;" in html
+    client.post("/listings/chat/reset")
+    assert "а теперь до 100" not in client.get("/").get_data(as_text=True)

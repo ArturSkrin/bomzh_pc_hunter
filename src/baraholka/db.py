@@ -65,6 +65,16 @@ CREATE TABLE IF NOT EXISTS searches (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Переписка в чате по списку: одна общая, переживает перезагрузку и переходы; «Новая сессия» её чистит
+CREATE TABLE IF NOT EXISTS list_chat (
+    id          INTEGER PRIMARY KEY,
+    role        TEXT NOT NULL CHECK (role IN ('user', 'bot')),
+    text        TEXT NOT NULL,
+    link        TEXT NOT NULL DEFAULT '',  -- у сообщения «нашёл N» — ссылка на список поиска
+    error       INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Что нашёл каждый поиск: отдельный список, в главный не попадает
 CREATE TABLE IF NOT EXISTS search_items (
     search_id   INTEGER NOT NULL REFERENCES searches(id),
