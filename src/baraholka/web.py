@@ -57,6 +57,16 @@ SORTS = {
 }
 
 
+def listings_source(search) -> tuple[str, list]:
+    """Откуда брать лоты: вся таблица или список поиска, где оценка и комментарий — от поиска."""
+    if not search:
+        return "listings", []
+    cols = [r[1] for r in conn().execute("PRAGMA table_info(listings)") if r[1] not in ("llm_score", "llm_comment")]
+    return (f"""(SELECT {', '.join('l.' + c for c in cols)}, si.score AS llm_score,
+                 (CASE si.verdict WHEN 'match' THEN '✅ подходит' ELSE '❔ уточнить' END) || ' — ' || si.why AS llm_comment
+                 FROM listings l JOIN search_items si ON si.listing_id = l.id WHERE si.search_id = ?)""", [search["id"]])
+
+
 @app.template_global()
 def listings_url(**changes) -> str:
     """Та же страница объявлений с текущими фильтрами, поменяв только переданное."""
@@ -70,12 +80,20 @@ def listings():
     desc = request.args.get("dir", "desc") != "asc"
     view = request.args.get("view") or request.cookies.get("view")
     view = view if view in ("table", "grid") else "table"
-    where, params = [], []
+    search = None
+    if request.args.get("search", "").isdigit():
+        search = conn().execute("SELECT * FROM searches WHERE id = ?", (int(request.args["search"]),)).fetchone()
+        if not search:
+            abort(404)
+        if "sort" not in request.args:
+            sort = "score"  # в списке поиска сначала то, что лучше подходит
+    table, params = listings_source(search)
+    where = ["1"]
     if f["status"]:
         where.append("status = ?"); params.append(f["status"])
-    else:
-        # «new» ещё не оценены нейронкой — там мусор, который она сейчас отсеет
-        where.append("status NOT IN ('new', 'rejected', 'rejected_llm', 'stale')")
+    elif not search:
+        # «new» ещё не оценены нейронкой — там мусор, который она сейчас отсеет; «search» живёт в своих списках
+        where.append("status NOT IN ('new', 'rejected', 'rejected_llm', 'stale', 'search')")
     if f["source"]:
         where.append("source = ?"); params.append(f["source"])
     if f["q"]:
@@ -87,17 +105,24 @@ def listings():
     order = f"{col} IS NULL, {col} {'DESC' if desc else 'ASC'}, id DESC"
     # shortcut: первые 300 без пагинации, хватит пока лотов немного
     rows = conn().execute(
-        f"SELECT * FROM listings WHERE {' AND '.join(where)} ORDER BY {order} LIMIT 300", params
+        f"SELECT * FROM {table} WHERE {' AND '.join(where)} ORDER BY {order} LIMIT 300", params
     ).fetchall()
     lots = []
     for r in rows:
         photo = (json.loads(r["photos"]) or [""])[0]
         lots.append(dict(r, photo=photo, thumb=photo.replace("800x600", "200x150")))
-    counts = dict(conn().execute("SELECT status, count(*) FROM listings GROUP BY status").fetchall())
-    sources = [r[0] for r in conn().execute("SELECT DISTINCT source FROM listings")]
+    base_params = [search["id"]] if search else []
+    counts = dict(conn().execute(f"SELECT status, count(*) FROM {table} GROUP BY status", base_params).fetchall())
+    sources = [r[0] for r in conn().execute(f"SELECT DISTINCT source FROM {table}", base_params)]
+    lists = []
+    for r in conn().execute("""SELECT s.id, s.request, count(si.listing_id) AS n FROM searches s
+                               LEFT JOIN search_items si ON si.search_id = s.id
+                               GROUP BY s.id ORDER BY s.id DESC LIMIT 8"""):
+        label = r["request"]  # мой запрос короче и различимее, чем пересказ нейронки
+        lists.append({"id": r["id"], "label": label[:40] + ("…" if len(label) > 40 else ""), "n": r["n"]})
     resp = make_response(render_template(
         "listings.html", lots=lots, f=f, counts=counts, sources=sources, statuses=STATUSES,
-        sorts=SORTS, sort=sort, desc=desc, view=view,
+        sorts=SORTS, sort=sort, desc=desc, view=view, search=search, lists=lists,
     ))
     if request.args.get("view") == view:
         resp.set_cookie("view", view, max_age=365 * 24 * 3600, samesite="Lax")
@@ -126,6 +151,36 @@ def listings_chat():
     except Exception as e:
         log.exception("Чат по списку упал")
         return jsonify({"ids": None, "reply": f"Не получилось ({type(e).__name__}), подробности в логе бота."}), 502
+
+
+@app.post("/listings/search")
+def listings_search():
+    # Поиск из чата: 1–2 минуты, страница ждёт с индикатором; результат — отдельный список
+    text = str((request.get_json(silent=True) or {}).get("request", "")).strip()
+    if not text:
+        abort(400)
+    s = app.config["SETTINGS"]
+    try:
+        sid = agent.run_search(conn(), text, s.llm_model, s.request_delay_sec,
+                               float(db.get_setting(conn(), "max_price_ron")))
+    except Exception as e:
+        log.exception("Поиск из чата упал")
+        return jsonify({"error": type(e).__name__}), 502
+    count = conn().execute("SELECT count(*) FROM search_items WHERE search_id = ?", (sid,)).fetchone()[0]
+    return jsonify({"id": sid, "count": count, "url": url_for("listings", search=sid)})
+
+
+@app.post("/listings/search/<int:sid>/delete")
+def delete_search(sid):
+    c = conn()
+    c.execute("DELETE FROM search_items WHERE search_id = ?", (sid,))
+    c.execute("DELETE FROM searches WHERE id = ?", (sid,))
+    # Найденное только этим поиском и без переписки больше нигде не видно — чистим
+    c.execute("""DELETE FROM listings WHERE status = 'search'
+                 AND id NOT IN (SELECT listing_id FROM search_items)
+                 AND id NOT IN (SELECT listing_id FROM messages)""")
+    c.commit()
+    return redirect(url_for("listings"))
 
 
 @app.post("/listings/bulk-status")

@@ -134,7 +134,7 @@ def test_list_chat_and_bulk_skip(client, monkeypatch):
     app.config["SETTINGS"] = SimpleNamespace(llm_model="m")
     monkeypatch.setattr(agent, "llm_json", lambda *a, **kw: {"ids": [1], "reply": "ок"})
     r = client.post("/listings/chat", json={"request": "оставь RTX", "ids": [1], "history": []})
-    assert r.get_json() == {"ids": [1], "reply": "ок"}
+    assert r.get_json() == {"ids": [1], "search": None, "reply": "ок"}
     assert client.post("/listings/chat", json={"request": ""}).status_code == 400
     assert 'data-id="1"' in client.get("/").get_data(as_text=True)
 
@@ -143,3 +143,28 @@ def test_list_chat_and_bulk_skip(client, monkeypatch):
     assert conn.execute("SELECT status FROM listings WHERE id = 1").fetchone()[0] == "skipped"
     # чужой сайт не может массово пометить мои лоты
     assert client.post("/listings/bulk-status", json={"ids": [1]}, headers={"Origin": "https://evil.example"}).status_code == 403
+
+
+def test_search_list_separate_from_main(client, monkeypatch):
+    from baraholka import agent
+    from types import SimpleNamespace
+    app.config["SETTINGS"] = SimpleNamespace(llm_model="m", request_delay_sec=0)
+    found = Listing("vinted", "7", "Monitor Dell 27 QHD", "https://x/7", 800, posted_at=datetime.now(timezone.utc))
+    answers = iter([{"queries": ["monitor"], "summary": "монитор 27"},
+                    {"matches": [{"id": "vinted:7", "verdict": "match", "score": 9, "why": "QHD, высота"}]}])
+    monkeypatch.setattr(agent, "llm_json", lambda *a, **kw: next(answers))
+    monkeypatch.setattr(agent, "SOURCES", {"vinted": lambda c, q, max_price=None: [found]})
+    monkeypatch.setattr(agent.time, "sleep", lambda s: None)
+
+    data = client.post("/listings/search", json={"request": "найди монитор 27"}).get_json()
+    assert data["count"] == 1 and data["url"] == f"/?search={data['id']}"
+    main = client.get("/").get_data(as_text=True)
+    assert "Monitor Dell 27 QHD" not in main and "найди монитор 27" in main  # не в главном, но есть в переключателе
+    lst = client.get(data["url"]).get_data(as_text=True)
+    assert "Monitor Dell 27 QHD" in lst and "QHD, высота" in lst and "RTX 3060" not in lst
+    assert client.get("/?search=999").status_code == 404
+
+    client.post(f"/listings/search/{data['id']}/delete")
+    conn = db.connect(app.config["DB_PATH"])
+    assert conn.execute("SELECT count(*) FROM listings WHERE title = 'Monitor Dell 27 QHD'").fetchone()[0] == 0
+    assert conn.execute("SELECT count(*) FROM listings WHERE title LIKE 'RTX%'").fetchone()[0] == 1  # главный не тронут

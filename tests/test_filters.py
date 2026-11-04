@@ -1,4 +1,4 @@
-from baraholka.filters import passes_rules
+from baraholka.filters import is_broken, passes_rules
 from baraholka.models import Listing
 
 
@@ -48,3 +48,9 @@ def test_plain_hdd_blocked_but_systems_with_hdd_pass():
         assert not passes_rules(lot(title), 1500), title
     for title in ("PC Desktop i5-750, 16 gb RAM, HDD 1tb", "SSD Kingston A400 480GB", "Unitate PC i5 hard disk 500"):
         assert passes_rules(lot(title), 1500), title
+
+
+def test_is_broken():
+    assert is_broken(lot("Placa video gtx 1070 defecta"))
+    assert is_broken(lot("Vând RX 580 8gb netestata"))
+    assert not is_broken(lot("Monitor Dell 27 QHD"))

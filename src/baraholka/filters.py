@@ -18,9 +18,10 @@ WANT_KEYWORDS = [
     "macbook", "thinkpad", "latitude", "elitebook", "probook", "ideapad", "vivobook", "zenbook", "aspire", "pavilion",
 ]
 # Только в заголовке: в описании рабочих лотов пишут «nu fac schimb», «fara niciun defect», «geanta cadou»
-TITLE_BLOCK = [
-    # битое (решили не брать)
-    "defect", "defecta", "defecte", "pentru piese", "nefunctional", "nefunctionala", "nu porneste", "nu merge",
+# Битое — не берём нигде, в том числе в поиске из чата
+BROKEN = ["defect", "defecta", "defecte", "defecti", "pentru piese", "nefunctional", "nefunctionala", "nu porneste",
+          "nu merge", "netestat", "netestata", "netestate"]
+TITLE_BLOCK = BROKEN + [
     # не продажа
     "cumpar", "caut", "schimb",
     # сумки, чехлы, аксессуары
@@ -65,6 +66,7 @@ def _words(words: list[str]) -> re.Pattern:
 
 _WANT = _words(WANT_KEYWORDS)
 _TITLE_BLOCK = _words(TITLE_BLOCK)
+_BROKEN = _words(BROKEN)
 _TEXT_BLOCK = _words(TEXT_BLOCK)
 _LAPTOP_PART = _words(LAPTOP_PART)
 _LAPTOP = _words(LAPTOP)
@@ -86,3 +88,7 @@ def passes_rules(lot: Listing, max_price_ron: float) -> bool:
     if lot.is_free:
         return True
     return lot.price_ron is not None and lot.price_ron <= max_price_ron
+
+
+def is_broken(lot: Listing) -> bool:
+    return bool(_BROKEN.search(fold(lot.title)))

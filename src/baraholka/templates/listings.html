@@ -27,9 +27,29 @@
 {%- endmacro %}
 
 {% block body %}
+{% if lists %}
+<nav class="lists" aria-label="Списки">
+  <a href="{{ url_for('listings') }}" class="{{ 'on' if not search }}">Главный</a>
+  {% for s in lists %}
+  <a href="{{ url_for('listings', search=s.id) }}" class="{{ 'on' if search and search.id == s.id }}"
+    title="Поиск из чата">🔎 {{ s.label }} <span>{{ s.n }}</span></a>
+  {% endfor %}
+</nav>
+{% endif %}
+{% if search %}
+<div class="row" style="margin:-4px 0 12px">
+  <span class="muted">Поиск по OLX, lajumate и Vinted: «{{ search.request }}» · {{ search.created_at }} UTC ·
+    проверено {{ search.candidates }} объявл.</span>
+  <form class="inline" method="post" action="{{ url_for('delete_search', sid=search.id) }}"
+    onsubmit="return confirm('Удалить этот список? Объявления, которые есть только в нём, тоже удалятся.')">
+    <button>Удалить список</button>
+  </form>
+</div>
+{% endif %}
 <form class="row" method="get">
+  {% if search %}<input type="hidden" name="search" value="{{ search.id }}">{% endif %}
   <select name="status">
-    <option value="">все, кроме отсеянных, старых и неоценённых</option>
+    <option value="">{{ 'все найденные' if search else 'все, кроме отсеянных, старых и неоценённых' }}</option>
     {% for key, label in statuses.items() %}
       <option value="{{ key }}" {{ 'selected' if f.status == key }}>{{ label }} ({{ counts.get(key, 0) }})</option>
     {% endfor %}
@@ -115,6 +135,7 @@
     <button>Только комплекты мать + проц</button>
     <button>Что пойдёт в хоумлаб?</button>
     <button>Сначала лучшие по оценке</button>
+    <button>Найди мини-ПК для хоумлаба до 300 lei</button>
   </div>
   <div class="lc-bar" id="lc-bar" hidden>
     <button id="lc-reset">Сбросить</button>
@@ -127,6 +148,11 @@
 </section>
 
 <style>
+  .lists { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
+  .lists a { padding:5px 12px; border-radius:99px; border:1px solid var(--line); background:var(--card);
+             color:var(--muted); text-decoration:none; font-size:14px; }
+  .lists a span { opacity:.7; margin-left:2px; }
+  .lists a.on { background:var(--accent); border-color:var(--accent); color:var(--bg); }
   [data-id][hidden] { display:none !important; }  /* у .card свой display:flex, он перебил бы hidden */
   .lc-fab { position:fixed; right:20px; bottom:20px; z-index:20; border-radius:99px; padding:10px 18px;
             background:var(--accent); color:var(--bg); border:0; font-weight:600; box-shadow:0 4px 16px rgb(0 0 0 / .25); }
@@ -229,11 +255,36 @@
       state.history.push({ role: "user", text }, { role: "bot", text: data.reply || "" });
       if (r.ok && data.ids) apply(data.ids);
       save();
+      if (r.ok && data.search) await search(data.search);
     } catch {
       wait.remove();
       say("bot", "Не достучался до бота — он запущен?", "err");
     } finally {
       input.disabled = false; input.focus();
+    }
+  }
+
+  // Поиск по сайтам — отдельный долгий запрос; результат — новый список, а не фильтр этого
+  async function search(query) {
+    const wait = say("bot", "");
+    wait.innerHTML = '<span class="dots"><span></span><span></span><span></span></span>';
+    wait.append(" Ищу на OLX, lajumate и Vinted: «" + query + "». Обычно 1–2 минуты, не закрывай вкладку.");
+    try {
+      const r = await fetch("/listings/search", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ request: query }) });
+      const data = await r.json();
+      wait.remove();
+      if (!r.ok) { say("bot", `Поиск не получился (${data.error}), подробности в логе бота.`, "err"); return; }
+      const msg = say("bot", data.count ? `Нашёл ${data.count} — отдельным списком, в главный не добавлял. ` : "Ничего подходящего не нашлось. ");
+      if (data.count) {
+        const a = Object.assign(document.createElement("a"), { href: data.url, textContent: "Открыть список →" });
+        msg.appendChild(a);
+      }
+      state.history.push({ role: "bot", text: msg.textContent });
+      save();
+    } catch {
+      wait.remove();
+      say("bot", "Не достучался до бота — он запущен?", "err");
     }
   }
 

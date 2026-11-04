@@ -64,6 +64,16 @@ CREATE TABLE IF NOT EXISTS searches (
     candidates  INTEGER NOT NULL,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Что нашёл каждый поиск: отдельный список, в главный не попадает
+CREATE TABLE IF NOT EXISTS search_items (
+    search_id   INTEGER NOT NULL REFERENCES searches(id),
+    listing_id  INTEGER NOT NULL REFERENCES listings(id),
+    verdict     TEXT NOT NULL,  -- match | unclear
+    score       REAL NOT NULL,
+    why         TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (search_id, listing_id)
+);
 """
 
 MIGRATIONS = [

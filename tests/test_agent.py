@@ -27,7 +27,7 @@ def test_run_search(tmp_path, monkeypatch):
             {"id": "olx:999", "verdict": "match", "score": 10, "why": "выдумано"},
         ]},
     ])
-    monkeypatch.setattr(agent, "llm_json", lambda *a: next(answers))
+    monkeypatch.setattr(agent, "llm_json", lambda *a, **kw: next(answers))
     monkeypatch.setattr(agent, "SOURCES", {"olx": fake_fetch})
 
     conn = db.connect(tmp_path / "a.db")
@@ -43,6 +43,8 @@ def test_run_search(tmp_path, monkeypatch):
     assert row["candidates"] == 3
     # Найденное через поиск не должно улететь в Telegram как «новое»
     assert {r[0] for r in conn.execute("SELECT status FROM listings")} == {"search"}
+    items = conn.execute("SELECT verdict, score FROM search_items WHERE search_id = ? ORDER BY score DESC", (sid,)).fetchall()
+    assert [tuple(i) for i in items] == [("unclear", 10), ("match", 9)]
 
 
 def test_evaluate_new(tmp_path, monkeypatch):
@@ -144,9 +146,50 @@ def test_list_chat_keeps_only_known_ids(tmp_path, monkeypatch):
 
     monkeypatch.setattr(agent, "llm_json", fake)
     out = agent.list_chat(conn, "m", "убери HDD", [a, b, c], [{"role": "user", "text": "привет"}])
-    assert out == {"ids": [c, b], "reply": "убрал HDD"}  # порядок модели, без чужих и повторов
+    assert out == {"ids": [c, b], "search": None, "reply": "убрал HDD"}  # порядок модели, без чужих и повторов
     assert seen["effort"] == "low"
     assert {i["title"] for i in seen["items"]} == {"HDD WD 500GB", "Kit placa de baza + i5", "Placa video RX 580"}
 
     monkeypatch.setattr(agent, "llm_json", lambda *a, **kw: {"ids": None, "reply": "3 объявления"})
     assert agent.list_chat(conn, "m", "сколько?", [a, b, c], [])["ids"] is None
+
+
+def test_search_links_existing_listing(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "s.db")
+    old = db.insert_if_new(conn, LOTS[0])
+    conn.execute("UPDATE listings SET status = 'sent' WHERE id = ?", (old,))
+    answers = iter([{"queries": ["dell"]}, {"matches": [{"id": "olx:1", "verdict": "match", "score": 8, "why": "да"}]}])
+    monkeypatch.setattr(agent, "llm_json", lambda *a, **kw: next(answers))
+    monkeypatch.setattr(agent, "SOURCES", {"olx": lambda c, q, max_price=None: LOTS[:1]})
+    sid = agent.run_search(conn, "dell", "m", 0, 200)
+    # уже был в главном — там и остаётся, а в список поиска попадает тоже
+    assert conn.execute("SELECT listing_id FROM search_items WHERE search_id = ?", (sid,)).fetchone()[0] == old
+    assert conn.execute("SELECT status FROM listings WHERE id = ?", (old,)).fetchone()[0] == "sent"
+
+
+def test_list_chat_turns_find_into_search(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "l.db")
+    monkeypatch.setattr(agent, "llm_json", lambda *a, **kw: {"ids": [1], "search": "monitor 27 qhd до 1000", "reply": "ищу"})
+    assert agent.list_chat(conn, "m", "найди монитор", [], []) == {"ids": None, "search": "monitor 27 qhd до 1000", "reply": "ищу"}
+
+
+def test_search_candidates_shared_between_sources(tmp_path, monkeypatch):
+    conn = db.connect(tmp_path / "c.db")
+    many = [Listing("olx", str(i), f"GPU {i}", f"https://o/{i}", 100) for i in range(200)]
+    few = [Listing("vinted", "v1", "GPU vinted", "https://v/1", 100)]
+    seen = {}
+    answers = iter([{"queries": ["gpu"]}, {"matches": []}])
+
+    def fake(model, system, user, **kw):
+        if "matches" not in seen:
+            seen["matches"] = True
+        else:
+            seen["brief"] = json.loads(user)
+        return next(answers)
+
+    monkeypatch.setattr(agent, "llm_json", fake)
+    monkeypatch.setattr(agent, "SOURCES", {"olx": lambda c, q, max_price=None: many,
+                                           "vinted": lambda c, q, max_price=None: few})
+    agent.run_search(conn, "gpu", "m", 0, 200)
+    ids = [b["id"] for b in seen["brief"]]
+    assert len(ids) == agent.MAX_CANDIDATES and "vinted:v1" in ids  # vinted не вытеснен OLX

@@ -4,11 +4,13 @@ import json
 import logging
 import sqlite3
 import time
+from itertools import zip_longest
 from datetime import datetime, timedelta, timezone
 
 import litellm
 
 from . import db, guards
+from .filters import is_broken
 from .sources import SOURCES
 
 log = logging.getLogger("baraholka")
@@ -21,12 +23,15 @@ PLAN_PROMPT = """Ты помогаешь искать б/у товары на р
 - queries: 4–8 коротких поисковых фраз по 1–4 слова. Сайт ищет по совпадению слов, длинные фразы ничего не находят.
   Смешай общие фразы на румынском (как пишут продавцы) и названия конкретных моделей, которые точно подходят
   под обязательные требования.
-- must: обязательные требования, коротко. nice: желательные. summary: одной строкой по-русски, что ищем."""
+- must: обязательные требования к самому товару, коротко; каждому должен соответствовать каждый лот, поэтому
+  альтернативы («A или B») — одним пунктом. Город и доставку не делай обязательными, если пользователь прямо
+  не потребовал. nice: желательные. summary: одной строкой по-русски, что ищем."""
 
 JUDGE_PROMPT = """Проверь объявления с барахолки на соответствие запросу.
 Обязательные требования: {must}
 Желательные: {nice}
-Отбрось всё, что явно не подходит по обязательным. Если в объявлении данных нет, но модель названа и ты знаешь
+Отбрось всё, что явно не подходит по обязательным. Неисправное, «на запчасти», «netestat» (defect, pentru piese) —
+тоже отбрось: ремонтом не занимаемся. Если в объявлении данных нет, но модель названа и ты знаешь
 её характеристики — опирайся на них и так и напиши («по модели: ...»). Если проверить нельзя — verdict "unclear".
 Верни JSON: {{"matches": [{{"id": "...", "verdict": "match" | "unclear", "score": 0-10, "why": "коротко по-русски"}}]}}
 score учитывает и желательные требования, и цену."""
@@ -71,13 +76,19 @@ def run_search(conn: sqlite3.Connection, request: str, model: str, delay_sec: fl
         for q in queries:
             try:
                 for lot in fetch(None, q, max_price=max_price):
-                    candidates.setdefault(f"{lot.source}:{lot.external_id}", lot)
+                    if not is_broken(lot):  # битое отсекаем кодом: судья-нейронка его иногда пропускает
+                        candidates.setdefault(f"{lot.source}:{lot.external_id}", lot)
             except Exception:
                 log.exception("%s: %r упал", name, q)
             time.sleep(delay_sec)
-    lots = dict(list(candidates.items())[:MAX_CANDIDATES])
+    # Поровну с каждой площадки: OLX отдаёт больше всех и иначе один забирал бы весь лимит
+    by_source = {}
+    for key, lot in candidates.items():
+        by_source.setdefault(lot.source, []).append((key, lot))
+    lots = dict(x for group in zip_longest(*by_source.values()) for x in group if x)
+    lots = dict(list(lots.items())[:MAX_CANDIDATES])
 
-    results = []
+    results, linked = [], []
     if lots:
         brief = [
             {"id": key, "title": l.title, "price_lei": l.price_ron, "city": l.city, "description": l.description[:500]}
@@ -87,18 +98,24 @@ def run_search(conn: sqlite3.Connection, request: str, model: str, delay_sec: fl
             model,
             JUDGE_PROMPT.format(must="; ".join(plan.get("must", [])), nice="; ".join(plan.get("nice", []))),
             json.dumps(brief, ensure_ascii=False),
+            reasoning_effort="low",  # сверить объявления с требованиями — не головоломка, а ждать меньше
         )
         for m in judged.get("matches", []):
             lot = lots.get(m.get("id"))  # id только из наших кандидатов — LLM может выдумать
             if not lot or m.get("verdict") not in ("match", "unclear"):
                 continue
+            score = max(0, min(10, int(m.get("score") or 0)))
             lid = db.insert_if_new(conn, lot)
-            if lid:  # чтобы сборщик не отправил его в Telegram как новое
+            if lid:  # новое — только в списке поиска: сборщик не шлёт его в Telegram, в главном его нет
                 conn.execute("UPDATE listings SET status = 'search' WHERE id = ?", (lid,))
+            else:
+                lid = conn.execute("SELECT id FROM listings WHERE source = ? AND external_id = ?",
+                                   (lot.source, lot.external_id)).fetchone()[0]
+            linked.append((lid, m["verdict"], score, str(m.get("why", ""))))
             results.append({
                 "title": lot.title, "url": lot.url, "price_ron": lot.price_ron, "is_free": lot.is_free,
                 "city": lot.city, "thumb": (lot.photos or [""])[0].replace("800x600", "200x150"),
-                "verdict": m["verdict"], "score": max(0, min(10, int(m.get("score") or 0))), "why": str(m.get("why", "")),
+                "verdict": m["verdict"], "score": score, "why": str(m.get("why", "")),
             })
     results.sort(key=lambda r: (r["verdict"] == "match", r["score"]), reverse=True)
 
@@ -106,6 +123,8 @@ def run_search(conn: sqlite3.Connection, request: str, model: str, delay_sec: fl
         "INSERT INTO searches (request, plan, results, candidates) VALUES (?, ?, ?, ?)",
         (request, json.dumps(plan, ensure_ascii=False), json.dumps(results, ensure_ascii=False), len(lots)),
     )
+    conn.executemany("INSERT OR IGNORE INTO search_items (search_id, listing_id, verdict, score, why) VALUES (?, ?, ?, ?, ?)",
+                     [(cur.lastrowid, *item) for item in linked])
     conn.commit()
     return cur.lastrowid
 
@@ -247,8 +266,12 @@ LIST_PROMPT = """Ты помогаешь перекупу б/у железа р�
 На входе: request — моя просьба, history — прошлые реплики, items — объявления, которые сейчас на экране.
 Просьба бывает фильтром («убери HDD», «только комплекты мать+проц»), сортировкой («сначала дешёвые»)
 или вопросом («сколько видеокарт?», «что лучше под хоумлаб?»). Суди по смыслу заголовка, а не по ключевым словам.
-Ответ — JSON: {"ids": [id в нужном порядке] или null, "reply": "по-русски, 1–2 предложения: что сделал или ответ"}
-ids — только из items. null — если список менять не надо (просто вопрос). Пустой список — если ничего не подошло."""
+Если я прошу найти что-то новое на сайтах («найди», «поищи», «есть ли где-нибудь …») — это не фильтр списка,
+а поиск по OLX, lajumate и Vinted: верни search — что искать, моими словами со всеми моими требованиями и ценой
+(учти историю: «то же, но до 500» — допиши прошлый запрос). Ничего от себя не добавляй — ни город, ни сайты. ids = null.
+Ответ — JSON: {"ids": [id в нужном порядке] или null, "search": "что искать" или null,
+"reply": "по-русски, 1–2 предложения: что сделал или ответ"}
+ids — только из items. null — если список менять не надо (вопрос или поиск). Пустой список — если ничего не подошло."""
 LIST_MAX = 400  # больше в один запрос не шлём
 
 
@@ -271,4 +294,6 @@ def list_chat(conn: sqlite3.Connection, model: str, request: str, ids: list[int]
         out = [i for i in out if isinstance(i, int) and i in known and not (i in seen or seen.add(i))]
     else:
         out = None
-    return {"ids": out, "reply": str(answer.get("reply") or "")[:600]}
+    search = answer.get("search")
+    search = str(search).strip()[:500] if search else None
+    return {"ids": None if search else out, "search": search, "reply": str(answer.get("reply") or "")[:600]}
