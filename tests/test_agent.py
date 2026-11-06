@@ -241,3 +241,21 @@ def test_draft_may_cite_market_only_with_real_comparables(tmp_path, monkeypatch)
     m = agent.draft_reply(conn, "m", lid, "bargain")
     assert json.loads(m["flags"]) == []
     assert seen[0]["listing"]["market"]["median_lei"] == 260  # свой лот в статистику не входит
+
+
+def test_draft_does_not_lock_db_while_llm_thinks(tmp_path, monkeypatch):
+    import sqlite3
+    path = tmp_path / "lock.db"
+    conn = db.connect(path)
+    lid = db.insert_if_new(conn, Listing("olx", "1", "Sursa 450W", "https://x/1", 110))
+    other = sqlite3.connect(path, timeout=0.2)  # как сборщик в другом потоке
+
+    def fake(model, system, user):
+        # пока «думает» нейронка, другой может писать, а ответ продавца уже в базе
+        other.execute("INSERT INTO queries (text) VALUES ('пока думает')")
+        other.commit()
+        assert other.execute("SELECT count(*) FROM messages WHERE direction = 'seller'").fetchone()[0] == 1
+        return {"text": "Mulțumesc."}
+
+    monkeypatch.setattr(agent, "llm_json", fake)
+    agent.draft_reply(conn, "m", lid, "reply", "Ultimul preț 80 lei")

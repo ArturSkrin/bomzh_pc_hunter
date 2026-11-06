@@ -99,10 +99,15 @@ def main() -> None:
         return agent.draft_reply(conn, settings.llm_model, lid, goal, text)
 
     while True:
-        log.info("Новых объявлений: %d", collect_once(settings, conn))
-        evaluate(settings, conn)
-        if bot:
-            send_new(bot, conn)
+        try:
+            log.info("Новых объявлений: %d", collect_once(settings, conn))
+            evaluate(settings, conn)
+            if bot:
+                send_new(bot, conn)
+        except Exception:
+            # Один неудачный сбор не должен ронять бота вместе с веб-мордой — следующий по расписанию
+            conn.rollback()
+            log.exception("Сбор упал, жду следующего по расписанию")
         at = next_run(db.parse_times(db.get_setting(conn, "collect_times")), datetime.now())
         log.info("Следующий сбор: %s", at.strftime("%d.%m %H:%M"))
         while (left := (at - datetime.now()).total_seconds()) > 0:

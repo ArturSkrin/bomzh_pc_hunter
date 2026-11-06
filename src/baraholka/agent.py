@@ -258,6 +258,9 @@ def draft_reply(conn: sqlite3.Connection, model: str, lid: int, goal: str, text:
         flags = [v.__dict__ for v in guards.scan_seller_message(seller_text)]
         conn.execute("INSERT INTO messages (listing_id, direction, text, flags) VALUES (?, 'seller', ?, ?)",
                      (lid, seller_text, json.dumps(flags, ensure_ascii=False)))
+        # Сразу в базу: иначе запись держит базу заблокированной все 10–20 с, пока думает нейронка,
+        # сборщик падает с «database is locked», а ответ продавца теряется
+        conn.commit()
     ceiling = lot_ceiling(conn, row)
     history = [{"from": "я" if m["direction"] == "draft" else "продавец", "text": m["text"]}
                for m in conn.execute("SELECT * FROM messages WHERE listing_id = ? AND (direction = 'seller' OR sent = 1) "

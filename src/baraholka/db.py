@@ -143,7 +143,8 @@ score 0–10 — насколько выгодно купить. Прикинь 
 
 def connect(path: Path) -> sqlite3.Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    # Сборщик и веб пишут в одну базу из разных потоков: занято — ждём, а не падаем сразу (по умолчанию 5 с)
+    conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")  # веб читает, пока сборщик пишет
     conn.executescript(SCHEMA)
