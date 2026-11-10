@@ -1,146 +1,154 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, price, score, status, market %}
 {% block title %}Объявления{% endblock %}
 
-{% macro price(l) -%}
-  {% if l.is_free %}<span class="free">бесплатно</span>{% elif l.price_ron is not none %}{{ l.price_ron|int }} lei{% else %}—{% endif %}
-{%- endmacro %}
-
 {% macro actions(l) -%}
-  <a href="{{ url_for('listing', lid=l.id) }}">💬 торг</a>
-  {% for st, label in [('negotiating', 'в работу'), ('skipped', 'пропустить')] if l.status != st %}
-  <form class="inline" method="post" action="{{ url_for('set_status', lid=l.id) }}">
-    <button name="status" value="{{ st }}">{{ label }}</button>
-  </form>
-  {% endfor %}
+  <div class="acts">
+    <a class="btn sm icon-only ghost" href="{{ l.url }}" target="_blank" rel="noopener" title="Открыть на {{ l.source }}" aria-label="Открыть на {{ l.source }}">{{ icon('external') }}</a>
+    <a class="btn sm icon-only ghost" href="{{ url_for('listing', lid=l.id) }}" title="Переписка с продавцом" aria-label="Переписка с продавцом">{{ icon('chat') }}</a>
+    {% for st, ico, label in [('negotiating', 'bookmark', 'В работу'), ('skipped', 'skip', 'Пропустить')] if l.status != st %}
+    <form class="inline" method="post" action="{{ url_for('set_status', lid=l.id) }}">
+      <button class="btn sm icon-only ghost{{ ' danger' if st == 'skipped' }}" name="status" value="{{ st }}" title="{{ label }}" aria-label="{{ label }}">{{ icon(ico) }}</button>
+    </form>
+    {% endfor %}
+  </div>
 {%- endmacro %}
 
-{% macro market(l) -%}
-  {% if l.market %}<span class="mkt" title="Такая же модель в нашей базе за 60 дней: {{ l.market.n }} объявл., от {{ l.market.min }} до {{ l.market.max }} lei">📊 медиана <b>{{ l.market.median }}</b> ({{ l.market.n }})
-    {%- if l.vs is not none %} · <span class="{{ 'down' if l.vs <= -15 else ('up' if l.vs > 0 else '') }}">{{ '%+d'|format(l.vs) }}%</span>{% endif %}</span>{% endif %}
-{%- endmacro %}
-
-{% macro score(l) -%}
-  {% if l.llm_score is not none %}<span class="score s{{ (l.llm_score // 1)|int }}">{{ l.llm_score|round|int }}/10</span>{% endif %}
-{%- endmacro %}
-
-{% macro th(key, label) -%}
+{% macro th(key, label, cls='') -%}
   {% set active = sort == key %}
-  {# Даты по умолчанию — свежие сверху, текст и цену — по возрастанию #}
+  {# Даты и оценку по умолчанию — сверху лучшее и свежее, текст и цену — по возрастанию #}
   {% set first = 'desc' if key in ('found', 'posted', 'score') else 'asc' %}
   {% set next_dir = ('asc' if desc else 'desc') if active else first %}
-  <th><a class="sort{{ ' on' if active }}" href="{{ listings_url(sort=key, dir=next_dir) }}">{{ label }}{% if active %} {{ '↓' if desc else '↑' }}{% endif %}</a></th>
+  <th class="{{ cls }}" {% if active %}aria-sort="{{ 'descending' if desc else 'ascending' }}"{% endif %}><a class="sort{{ ' on' if active }}" href="{{ listings_url(sort=key, dir=next_dir) }}">{{ label }}{% if active %}{{ icon('sort-desc' if desc else 'sort-asc') }}{% endif %}</a></th>
+{%- endmacro %}
+
+{% macro meta(l) -%}
+  <span>{{ l.source }}</span>{% if l.city %}<span>{{ icon('pin') }}{{ l.city }}</span>{% endif %}{% if l.posted_at %}<span class="num">{{ l.posted_at[8:10] }}.{{ l.posted_at[5:7] }} {{ l.posted_at[11:16] }}</span>{% endif %}
 {%- endmacro %}
 
 {% block body %}
+<div class="page-head">
+  <div>
+    <h1>{{ 'Поиск' if search else 'Объявления' }} <span class="muted num" id="count">{{ lots|length }} шт.{% if lots|length == 300 %} (первые 300){% endif %}</span></h1>
+    {% if search %}<p class="muted">«{{ search.request }}» · OLX, lajumate и Vinted · проверено {{ search.candidates }} объявл.</p>{% endif %}
+  </div>
+  <div class="head-acts">
+    {% if search %}
+    <form class="inline" method="post" action="{{ url_for('delete_search', sid=search.id) }}"
+      onsubmit="return confirm('Удалить этот поиск вместе с его объявлениями? Лоты из главного списка и с перепиской останутся.')">
+      <button class="btn sm danger">{{ icon('trash') }}Удалить список</button>
+    </form>
+    {% endif %}
+    <nav class="seg" aria-label="Вид">
+      <a href="{{ listings_url(view='table') }}" class="{{ 'on' if view == 'table' }}" {% if view == 'table' %}aria-current="true"{% endif %}>{{ icon('list') }}Таблица</a>
+      <a href="{{ listings_url(view='grid') }}" class="{{ 'on' if view == 'grid' }}" {% if view == 'grid' %}aria-current="true"{% endif %}>{{ icon('grid') }}Плитка</a>
+    </nav>
+  </div>
+</div>
+
 {% if lists %}
-<nav class="lists" aria-label="Списки">
-  <a href="{{ url_for('listings') }}" class="{{ 'on' if not search }}">Главный</a>
+<nav class="tabs" aria-label="Списки">
+  <a href="{{ url_for('listings') }}" class="tab{{ ' on' if not search }}" {% if not search %}aria-current="page"{% endif %}>{{ icon('list') }}Главный</a>
   {% for s in lists %}
-  <span class="chip{{ ' on' if search and search.id == s.id }}">
-    <a href="{{ url_for('listings', search=s.id) }}" title="Поиск из чата">🔎 {{ s.label }} <span>{{ s.n }}</span></a>
+  <span class="tab{{ ' on' if search and search.id == s.id }}">
+    <a href="{{ url_for('listings', search=s.id) }}" title="Поиск из чата: {{ s.label }}" {% if search and search.id == s.id %}aria-current="page"{% endif %}>{{ icon('query') }}{{ s.label }}<span class="n num">{{ s.n }}</span></a>
     <form method="post" action="{{ url_for('delete_search', sid=s.id) }}"
       onsubmit="return confirm('Удалить поиск «{{ s.label|e }}» вместе с его объявлениями?')">
-      <button aria-label="Удалить поиск" title="Удалить поиск вместе с его объявлениями">×</button>
+      <button aria-label="Удалить поиск «{{ s.label }}»" title="Удалить поиск вместе с его объявлениями">{{ icon('x') }}</button>
     </form>
   </span>
   {% endfor %}
 </nav>
 {% endif %}
-{% if search %}
-<div class="row" style="margin:-4px 0 12px">
-  <span class="muted">Поиск по OLX, lajumate и Vinted: «{{ search.request }}» · {{ search.created_at }} UTC ·
-    проверено {{ search.candidates }} объявл.</span>
-  <form class="inline" method="post" action="{{ url_for('delete_search', sid=search.id) }}"
-    onsubmit="return confirm('Удалить этот поиск вместе с его объявлениями? Лоты из главного списка и с перепиской останутся.')">
-    <button>Удалить список</button>
-  </form>
-</div>
-{% endif %}
-<form class="row" method="get">
+
+<form class="toolbar" method="get" id="filters">
   {% if search %}<input type="hidden" name="search" value="{{ search.id }}">{% endif %}
-  <select name="status">
-    <option value="">{{ 'все найденные' if search else 'все, кроме отсеянных, старых и неоценённых' }}</option>
+  <input type="hidden" name="view" value="{{ view }}">
+  <label class="search-in">{{ icon('query') }}<input name="q" value="{{ f.q }}" placeholder="Поиск по названию и описанию" aria-label="Поиск по тексту"></label>
+  <select name="status" aria-label="Статус">
+    <option value="">{{ 'Все найденные' if search else 'Все актуальные' }}</option>
     {% for key, label in statuses.items() %}
-      <option value="{{ key }}" {{ 'selected' if f.status == key }}>{{ label }} ({{ counts.get(key, 0) }})</option>
+      <option value="{{ key }}" {{ 'selected' if f.status == key }}>{{ label|capitalize }} · {{ counts.get(key, 0) }}</option>
     {% endfor %}
   </select>
-  <select name="source">
-    <option value="">все сайты</option>
-    {% for s in sources %}<option {{ 'selected' if f.source == s }}>{{ s }}</option>{% endfor %}
+  <select name="source" aria-label="Сайт">
+    <option value="">Все сайты</option>
+    {% for s in sources %}<option value="{{ s }}" {{ 'selected' if f.source == s }}>{{ s }}</option>{% endfor %}
   </select>
-  <input name="q" value="{{ f.q }}" placeholder="поиск по тексту">
-  <input name="max_price" value="{{ f.max_price }}" placeholder="цена до, lei" size="10" inputmode="numeric">
+  <label class="price-in"><input name="max_price" value="{{ f.max_price }}" placeholder="Цена до" inputmode="numeric" aria-label="Цена до, lei"><span>lei</span></label>
   <select name="sort" aria-label="Сортировка">
-    {% for key, (_, label) in sorts.items() %}<option value="{{ key }}" {{ 'selected' if sort == key }}>по: {{ label }}</option>{% endfor %}
+    {% for key, (_, label) in sorts.items() %}<option value="{{ key }}" {{ 'selected' if sort == key }}>↕ {{ label|capitalize }}</option>{% endfor %}
   </select>
   <select name="dir" aria-label="Направление">
-    <option value="desc" {{ 'selected' if desc }}>↓ убывание</option>
-    <option value="asc" {{ 'selected' if not desc }}>↑ возрастание</option>
+    <option value="desc" {{ 'selected' if desc }}>По убыванию</option>
+    <option value="asc" {{ 'selected' if not desc }}>По возрастанию</option>
   </select>
-  <input type="hidden" name="view" value="{{ view }}">
-  <button class="primary">Показать</button>
-  <span class="muted" id="count">{{ lots|length }} шт.{% if lots|length == 300 %} (первые 300){% endif %}</span>
-  <span class="seg" style="margin-left:auto">
-    <a href="{{ listings_url(view='table') }}" class="{{ 'on' if view == 'table' }}">☰ Таблица</a>
-    <a href="{{ listings_url(view='grid') }}" class="{{ 'on' if view == 'grid' }}">▦ Плитка</a>
-  </span>
+  <button class="btn" id="apply">Показать</button>
 </form>
 
 {% if view == 'grid' %}
 <div class="grid">
   {% for l in lots %}
   <article class="card" data-id="{{ l.id }}">
-    <a href="{{ l.url }}" target="_blank" rel="noopener" class="ph">
-      {% if l.photo %}<img src="{{ l.photo }}" loading="lazy" alt="">{% else %}<span class="muted">нет фото</span>{% endif %}
+    <a href="{{ url_for('listing', lid=l.id) }}" class="ph" tabindex="-1" aria-hidden="true">
+      {% if l.photo %}<img src="{{ l.photo }}" loading="lazy" alt="">{% else %}{{ icon('image', 'lg') }}{% endif %}
     </a>
     <div class="cb">
-      <div class="price">{{ price(l) }} {{ score(l) }}</div>
+      <div class="price-row"><span class="price">{{ price(l) }}</span>{{ score(l) }}</div>
       {{ market(l) }}
-      <a href="{{ l.url }}" target="_blank" rel="noopener" class="t">{{ l.title }}</a>
-      <div class="muted">{{ l.city or '—' }} · {{ l.source }} · {{ (l.posted_at or '')[:10] }}</div>
-      {% if l.llm_comment %}<div class="muted">{{ l.llm_comment }}</div>{% endif %}
-      <div class="foot"><span class="pill">{{ statuses.get(l.status, l.status) }}</span> {{ actions(l) }}</div>
+      <a href="{{ url_for('listing', lid=l.id) }}" class="t">{{ l.title }}</a>
+      <div class="meta">{{ meta(l) }}</div>
+      {% if l.llm_comment %}<p class="cmt">{{ l.llm_comment }}</p>{% endif %}
+      <div class="foot">{{ status(l, statuses) }}{{ actions(l) }}</div>
     </div>
   </article>
   {% else %}
-  <p class="muted">Пусто. Сборщик ещё не ходил или всё отсеяно фильтром.</p>
+  <div class="empty" style="grid-column:1/-1">{{ icon('query', 'lg') }}<b>Пусто</b>
+    <span>Сборщик ещё не ходил, или всё отсеяно. Поменяй фильтр статуса или напиши в чат «найди …».</span></div>
   {% endfor %}
 </div>
 {% else %}
-<table>
-  <tr>
-    <th></th>
-    {{ th('title', 'Объявление') }}{{ th('score', 'Оценка') }}{{ th('price', 'Цена') }}{{ th('city', 'Город') }}
-    {{ th('posted', 'Добавлено') }}{{ th('status', 'Статус') }}
-    <th></th>
-  </tr>
+<div class="table-wrap">
+<table class="lots">
+  <thead><tr>
+    <th class="c-ph"><span class="sr">Фото</span></th>
+    {{ th('title', 'Объявление') }}{{ th('score', 'Оценка', 'c-score') }}{{ th('price', 'Цена и рынок', 'c-price') }}
+    {{ th('status', 'Статус', 'c-status') }}
+    <th class="c-acts"><span class="sr">Действия</span></th>
+  </tr></thead>
+  <tbody>
   {% for l in lots %}
   <tr data-id="{{ l.id }}">
-    <td>{% if l.thumb %}<img class="thumb" src="{{ l.thumb }}" loading="lazy" alt="">{% endif %}</td>
-    <td><a href="{{ l.url }}" target="_blank" rel="noopener">{{ l.title }}</a><br><span class="muted">{{ l.source }}{% if l.llm_comment %} · {{ l.llm_comment }}{% endif %}</span></td>
-    <td>{{ score(l) }}</td>
-    <td style="white-space:nowrap">{{ price(l) }}<br>{{ market(l) }}</td>
-    <td>{{ l.city }}</td>
-    <td class="muted">{{ (l.posted_at or '')[:16]|replace('T', ' ') }}</td>
-    <td><span class="pill">{{ statuses.get(l.status, l.status) }}</span></td>
-    <td>{{ actions(l) }}</td>
+    <td class="c-ph">{% if l.thumb %}<img class="thumb" src="{{ l.thumb }}" loading="lazy" alt="">{% else %}<span class="ph-empty">{{ icon('image') }}</span>{% endif %}</td>
+    <td class="c-title">
+      <a class="t" href="{{ url_for('listing', lid=l.id) }}">{{ l.title }}</a>
+      <div class="meta">{{ meta(l) }}</div>
+      {% if l.llm_comment %}<p class="cmt">{{ l.llm_comment }}</p>{% endif %}
+    </td>
+    <td class="c-score">{{ score(l) }}</td>
+    <td class="c-price"><div class="price">{{ price(l) }}</div>{{ market(l) }}</td>
+    <td class="c-status">{{ status(l, statuses) }}</td>
+    <td class="c-acts">{{ actions(l) }}</td>
   </tr>
   {% else %}
-  <tr><td colspan="8" class="muted">Пусто. Сборщик ещё не ходил или всё отсеяно фильтром.</td></tr>
+  <tr><td colspan="6"><div class="empty">{{ icon('query', 'lg') }}<b>Пусто</b>
+    <span>Сборщик ещё не ходил, или всё отсеяно. Поменяй фильтр статуса или напиши в чат «найди …».</span></div></td></tr>
   {% endfor %}
+  </tbody>
 </table>
+</div>
 {% endif %}
 
-<button class="lc-fab" id="lc-open" aria-expanded="false" aria-controls="lc">💬 Спросить по списку</button>
+<button class="lc-fab" id="lc-open" aria-expanded="false" aria-controls="lc">{{ icon('chat', 'lg') }}Спросить по списку</button>
 <section class="lc" id="lc" hidden aria-label="Чат по списку">
   <header>
-    <b>Чат по списку</b>
+    <span class="lc-title">{{ icon('bot') }}<b>Чат по списку</b></span>
     <span class="muted" id="lc-state"></span>
-    <button class="lc-new" id="lc-new" title="Очистить переписку: нейронка забудет прошлые просьбы">Новая сессия</button>
-    <button class="lc-x" id="lc-close" aria-label="Закрыть">×</button>
+    <button class="btn sm ghost lc-new" id="lc-new" title="Очистить переписку: нейронка забудет прошлые просьбы">{{ icon('refresh') }}Новая сессия</button>
+    <button class="btn sm icon-only ghost" id="lc-close" aria-label="Закрыть чат">{{ icon('x') }}</button>
   </header>
-  <div class="lc-feed" id="lc-feed">
-    <div class="lc-m bot">Скажи, что сделать со списком, — я вижу всё, что сейчас на экране. Или «найди …» — поищу на сайтах.</div>
+  <div class="lc-feed" id="lc-feed" aria-live="polite">
+    <div class="lc-m bot">Скажи, что сделать со списком, — я вижу всё, что сейчас на экране. Или «найди …» — поищу на OLX, lajumate и Vinted.</div>
     {% for m in chat %}
     <div class="lc-m {{ 'me' if m.role == 'user' else 'bot' }}{{ ' err' if m.error }}">{{ m.text }}{% if m.link %} <a href="{{ m.link }}">Открыть список →</a>{% endif %}</div>
     {% endfor %}
@@ -153,58 +161,144 @@
     <button>Найди мини-ПК для хоумлаба до 300 lei</button>
   </div>
   <div class="lc-bar" id="lc-bar" hidden>
-    <button id="lc-reset">Сбросить</button>
-    <button id="lc-skip" class="warn"></button>
+    <button class="btn sm" id="lc-reset">Сбросить фильтр</button>
+    <button class="btn sm danger" id="lc-skip"></button>
   </div>
   <form id="lc-form">
-    <textarea id="lc-input" rows="1" placeholder="Например: оставь только Сучаву и рядом"></textarea>
-    <button class="primary" aria-label="Отправить">↑</button>
+    <textarea id="lc-input" rows="1" placeholder="Например: оставь только Сучаву и рядом" aria-label="Сообщение"></textarea>
+    <button class="btn primary icon-only" aria-label="Отправить">{{ icon('send', 'lg') }}</button>
   </form>
 </section>
 
 <style>
-  .lists { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; }
-  .lists > a, .lists .chip { padding:5px 12px; border-radius:99px; border:1px solid var(--line); background:var(--card);
-             color:var(--muted); text-decoration:none; font-size:14px; }
-  .lists .chip { display:inline-flex; align-items:center; gap:4px; padding-right:4px; }
-  .lists .chip a { color:inherit; text-decoration:none; }
-  .lists .chip a span { opacity:.7; margin-left:2px; }
-  .lists .chip button { border:0; background:none; color:inherit; opacity:.55; padding:0 6px; font-size:16px; line-height:1; }
-  .lists .chip button:hover, .lists .chip button:focus-visible { opacity:1; }
-  .lists > a.on, .lists .chip.on { background:var(--accent); border-color:var(--accent); color:var(--bg); }
+  .head-acts { margin-left:auto; display:flex; gap:8px; align-items:center; }
+  .sr { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); }
+
+  /* Списки: главный и поиски из чата */
+  .tabs { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:12px; }
+  .tab { display:inline-flex; align-items:center; height:32px; border-radius:var(--r); color:var(--muted);
+         border:1px solid transparent; font-weight:500; font-size:var(--fs-sm); max-width:100%; }
+  .tab > a, a.tab { display:inline-flex; align-items:center; gap:6px; height:100%; padding:0 10px; color:inherit; text-decoration:none;
+                    min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tab:hover { color:var(--fg); background:var(--surface-2); }
+  .tab.on { color:var(--fg); background:var(--surface); border-color:var(--line-strong); }
+  .tab.on .icon { color:var(--accent); }
+  .tab .n { color:var(--muted); font-weight:600; margin-left:2px; }
+  .tab button { border:0; background:none; color:var(--muted); width:26px; height:26px; margin-right:3px; border-radius:var(--r-sm);
+                display:grid; place-items:center; cursor:pointer; opacity:.6; }
+  .tab button:hover { opacity:1; color:var(--danger); background:var(--danger-soft); }
+
+  /* Фильтры: одна строка, применяются сразу */
+  .toolbar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; padding:10px;
+             background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); }
+  .search-in { position:relative; flex:1 1 260px; display:flex; }
+  .search-in .icon { position:absolute; left:11px; top:10px; color:var(--muted); pointer-events:none; }
+  .search-in input { width:100%; padding-left:34px; }
+  .price-in { position:relative; display:flex; }
+  .price-in input { width:116px; padding-right:34px; }
+  .price-in span { position:absolute; right:11px; top:8px; color:var(--muted); font-size:var(--fs-sm); pointer-events:none; }
+  .js #apply { display:none; }
+  h1 #count { font-size:var(--fs); font-weight:500; margin-left:6px; letter-spacing:0; }
+
+  /* Таблица лотов */
+  .lots .c-ph { width:88px; padding-right:0; }
+  .lots .c-score { width:84px; }
+  .lots .c-price { width:200px; }
+  .lots .c-status { width:124px; }
+  .lots .c-acts { width:1%; }
+  .lots td.c-title { min-width:280px; }
+  .t { color:var(--fg); text-decoration:none; font-weight:550; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .t:hover { color:var(--accent); text-decoration:underline; }
+  .meta { display:flex; flex-wrap:wrap; gap:4px 12px; margin-top:4px; color:var(--muted); font-size:var(--fs-xs); }
+  .meta span { display:inline-flex; align-items:center; gap:4px; }
+  .meta .icon { width:12px; height:12px; }
+  .cmt { margin:6px 0 0; color:var(--fg-2); font-size:var(--fs-sm); max-width:72ch; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .price { font-weight:700; font-size:var(--fs-md); white-space:nowrap; }
+  .acts { display:flex; gap:2px; justify-content:flex-end; }
+  tbody tr:not(:hover) .acts .btn:not(:focus-visible) { color:var(--muted); }
+
+  /* Плитка */
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:16px; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); overflow:hidden; display:flex;
+          flex-direction:column; transition:border-color .15s, transform .15s; }
+  .card:hover { border-color:var(--line-strong); }
+  /* overflow:hidden — иначе высокое фото растягивает карточку мимо 4:3 */
+  .card .ph { display:grid; place-items:center; aspect-ratio:4/3; overflow:hidden; background:var(--surface-2); color:var(--muted); }
+  .card .ph img { width:100%; height:100%; object-fit:cover; transition:transform .3s cubic-bezier(.2,.7,.2,1); }
+  .card:hover .ph img { transform:scale(1.03); }
+  .card .cb { padding:12px 14px 10px; display:flex; flex-direction:column; gap:4px; flex:1; }
+  .card .price-row { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .card .price { font-size:var(--fs-lg); }
+  .card .t { margin-top:4px; }
+  .card .foot { margin-top:auto; padding-top:10px; display:flex; gap:6px; align-items:center; justify-content:space-between; }
+
+  /* Чат по списку */
   [data-id][hidden] { display:none !important; }  /* у .card свой display:flex, он перебил бы hidden */
-  .lc-fab { position:fixed; right:20px; bottom:20px; z-index:20; border-radius:99px; padding:10px 18px;
-            background:var(--accent); color:var(--bg); border:0; font-weight:600; box-shadow:0 4px 16px rgb(0 0 0 / .25); }
-  .lc { position:fixed; right:20px; bottom:20px; z-index:21; width:min(400px, calc(100vw - 32px));
-        height:min(600px, calc(100vh - 40px)); display:flex; flex-direction:column; background:var(--card);
-        border:1px solid var(--line); border-radius:14px; box-shadow:0 8px 32px rgb(0 0 0 / .3); }
+  .lc-fab { position:fixed; right:24px; bottom:24px; z-index:20; display:inline-flex; align-items:center; gap:8px; height:44px;
+            padding:0 18px; border-radius:99px; border:0; background:var(--accent); color:var(--accent-ink); font-weight:650;
+            cursor:pointer; box-shadow:var(--shadow); transition:transform .15s; }
+  .lc-fab:hover { transform:translateY(-1px); }
+  .lc-fab[hidden] { display:none; }
+  .lc { position:fixed; right:24px; bottom:24px; z-index:21; width:min(420px, calc(100vw - 32px));
+        height:min(640px, calc(100vh - 96px)); display:flex; flex-direction:column; background:var(--surface);
+        border:1px solid var(--line-strong); border-radius:var(--r-lg); box-shadow:var(--shadow); }
   .lc[hidden] { display:none; }
-  .lc header { display:flex; gap:8px; align-items:baseline; padding:12px 14px; border-bottom:1px solid var(--line); }
-  .lc-new { margin-left:auto; font-size:12px; padding:3px 8px; }
-  .lc-x { border:0; background:none; font-size:20px; line-height:1; color:var(--muted); padding:0 4px; }
-  .lc-feed { flex:1; overflow:auto; padding:12px 14px; display:flex; flex-direction:column; gap:8px; }
-  .lc-m { max-width:88%; padding:8px 12px; border-radius:14px; white-space:pre-wrap; font-size:14px; }
-  .lc-m.me { align-self:flex-end; background:color-mix(in srgb, var(--accent) 16%, var(--card)); border-bottom-right-radius:4px; }
-  .lc-m.bot { align-self:flex-start; background:var(--bg); border:1px solid var(--line); border-bottom-left-radius:4px; }
-  .lc-m.err { color:var(--warn); }
+  .lc header { display:flex; gap:8px; align-items:center; padding:10px 10px 10px 16px; border-bottom:1px solid var(--line); }
+  .lc-title { display:inline-flex; align-items:center; gap:8px; }
+  .lc-title .icon { color:var(--accent); }
+  .lc-new { margin-left:auto; }
+  .lc-feed { flex:1; overflow:auto; padding:14px 16px; display:flex; flex-direction:column; gap:8px; }
+  .lc-m { max-width:88%; padding:8px 12px; border-radius:14px; white-space:pre-wrap; font-size:var(--fs); line-height:1.45; }
+  .lc-m.me { align-self:flex-end; background:var(--accent-soft); border-bottom-right-radius:4px; }
+  .lc-m.bot { align-self:flex-start; background:var(--surface-2); border-bottom-left-radius:4px; }
+  .lc-m.err { color:var(--danger); background:var(--danger-soft); }
   .lc-chips[hidden] { display:none; }
-  .lc-chips { display:flex; flex-wrap:wrap; gap:6px; padding:0 14px 8px; }
-  .lc-chips button { border-radius:99px; font-size:13px; padding:4px 10px; }
-  .lc-bar { display:flex; gap:6px; padding:0 14px 8px; }
+  .lc-chips { display:flex; flex-wrap:wrap; gap:6px; padding:0 16px 10px; }
+  .lc-chips button { height:30px; padding:0 12px; border-radius:99px; border:1px solid var(--line-strong); background:transparent;
+                     color:var(--fg-2); font-size:var(--fs-sm); cursor:pointer; }
+  .lc-chips button:hover { color:var(--fg); border-color:var(--accent); background:var(--accent-soft); }
+  .lc-bar { display:flex; gap:6px; padding:0 16px 10px; flex-wrap:wrap; }
   .lc-bar[hidden] { display:none; }
-  .lc-bar button { font-size:13px; }
-  .lc-bar .warn { color:var(--warn); }
-  #lc-form { display:flex; gap:8px; align-items:flex-end; padding:10px 14px 14px; border-top:1px solid var(--line); }
-  #lc-input { flex:1; resize:none; max-height:120px; }
-  #lc-form .primary { width:36px; height:36px; border-radius:50%; padding:0; flex:none; }
+  #lc-form { display:flex; gap:8px; align-items:flex-end; padding:12px 16px 16px; border-top:1px solid var(--line); }
+  #lc-input { flex:1; resize:none; max-height:120px; min-height:36px; padding-top:7px; padding-bottom:7px; }
+  #lc-form .btn { border-radius:50%; }
   .lc .dots span { display:inline-block; width:6px; height:6px; margin:0 2px; border-radius:50%;
                    background:var(--muted); animation:lcblink 1.2s infinite; }
   .lc .dots span:nth-child(2) { animation-delay:.2s; } .lc .dots span:nth-child(3) { animation-delay:.4s; }
   @keyframes lcblink { 0%, 80%, 100% { opacity:.25; } 40% { opacity:1; } }
-  @media (prefers-reduced-motion: reduce) { .lc .dots span { animation:none; } }
-  @media (max-width: 520px) { .lc { right:8px; bottom:8px; width:calc(100vw - 16px); height:70vh; } }
+
+  @media (max-width: 900px) {
+    .lots .c-status { display:none; }
+    .lots .c-price { width:150px; }
+  }
+  @media (max-width: 640px) {
+    /* Телефон: таблица становится списком карточек-строк */
+    .table-wrap { background:transparent; border:0; overflow:visible; }
+    .lots thead { display:none; }
+    .lots, .lots tbody { display:block; }
+    .lots tr { display:grid; grid-template-columns:72px 1fr auto; gap:4px 12px; padding:12px; margin-bottom:8px;
+               background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); }
+    .lots td { display:block; padding:0; border:0; }
+    .lots td.c-ph { grid-row:1 / span 3; width:auto; }
+    .lots td.c-title { grid-column:2 / span 2; min-width:0; }
+    .lots td.c-score { grid-column:3; grid-row:2; width:auto; }
+    .lots td.c-price { grid-column:2; grid-row:2; width:auto; }
+    .lots td.c-acts { grid-column:2 / span 2; width:auto; }
+    .lots td.c-acts .acts { justify-content:flex-start; }
+    .head-acts { margin-left:0; width:100%; }
+    .head-acts .seg { margin-left:auto; }
+    .search-in { flex-basis:100%; }
+    .toolbar select, .price-in { flex:1 1 calc(50% - 4px); min-width:0; width:auto; }
+    .price-in input { width:100%; }
+    .lc-fab { right:12px; bottom:12px; }
+    .lc { right:8px; bottom:8px; width:calc(100vw - 16px); height:75vh; }
+  }
 </style>
 <script>
+// Фильтры применяются сразу: выбор в списке — без кнопки «Показать»
+document.documentElement.classList.add("js");
+for (const el of document.querySelectorAll("#filters select")) el.addEventListener("change", () => el.form.submit());
+
 (() => {
   const $ = id => document.getElementById(id);
   const panel = $("lc"), fab = $("lc-open"), feed = $("lc-feed"), input = $("lc-input");

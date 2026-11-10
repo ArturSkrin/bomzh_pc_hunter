@@ -1,30 +1,52 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon %}
 {% block title %}Настройки{% endblock %}
 {% block body %}
-{% if saved %}<p>✅ Сохранено. Сборщик подхватит на следующем проходе.</p>{% endif %}
-{% if error %}<p class="err">⚠️ {{ error }}</p>{% endif %}
-<form method="post" style="display:grid; gap:18px; max-width:760px">
-  <label>Потолок цены, lei<br>
-    <input name="max_price_ron" value="{{ s.max_price_ron }}" inputmode="numeric" required>
-    <div class="muted">Дороже — отсеивается фильтром. Торговаться выше этой цены бот не сможет.</div>
-  </label>
-  <label>Время сбора<br>
-    <input name="collect_times" value="{{ s.collect_times }}" required>
-    <div class="muted">Местное время через запятую, например «09:00, 14:00, 20:00». К каждому случайно ±10 минут.
-      Между сборами бот только отвечает на кнопки в Telegram.</div>
-  </label>
-  <label>Порог оценки нейронки, 0–10<br>
-    <input name="llm_min_score" value="{{ s.llm_min_score }}" inputmode="numeric" required>
-    <div class="muted">Лоты с оценкой ниже — «отсеяно нейронкой», в Telegram не идут. В вебе их видно в фильтре статусов.</div>
-  </label>
-  <label>Инструкция LLM: оценка лота (кто ты, что ищем, как считать выгоду)<br>
-    <textarea name="llm_eval_prompt" rows="18" style="width:100%">{{ s.llm_eval_prompt }}</textarea>
-    <div class="muted">Формат ответа (оценка, цена перепродажи, комментарий) добавляется в коде — его тут писать не нужно.</div>
-  </label>
-  <label>Инструкция LLM: переписка с продавцом<br>
-    <textarea name="llm_bargain_prompt" rows="6" style="width:100%">{{ s.llm_bargain_prompt }}</textarea>
-    <div class="muted">Жёсткие правила (без предоплаты, курьеров, телефона, адреса, выше потолка) работают в коде поверх любого промпта — отключить их отсюда нельзя.</div>
-  </label>
-  <div><button class="primary">Сохранить</button></div>
+<div class="page-head"><h1>Настройки и LLM</h1></div>
+{% if saved %}<div class="notice ok" role="status">{{ icon('check') }}Сохранено. Сборщик подхватит на следующем проходе.</div>{% endif %}
+{% if error %}<div class="notice bad" role="alert">{{ icon('alert') }}{{ error }}</div>{% endif %}
+<form method="post" class="settings">
+  <section>
+    <h2>Сбор и фильтр</h2>
+    <div class="cols">
+      <label class="field"><span>Потолок цены</span>
+        <span class="unit"><input name="max_price_ron" value="{{ s.max_price_ron }}" inputmode="numeric" required><i>lei</i></span>
+        <span class="hint">Дороже — отсеивается при автосборе. Торговаться выше бот не сможет. На поиск из чата не влияет.</span>
+      </label>
+      <label class="field"><span>Порог оценки нейронки</span>
+        <span class="unit"><input name="llm_min_score" value="{{ s.llm_min_score }}" inputmode="numeric" required><i>из 10</i></span>
+        <span class="hint">Ниже — «отсеяно нейронкой», в Telegram не идёт. В вебе видно в фильтре статусов.</span>
+      </label>
+    </div>
+    <label class="field"><span>Время сбора</span>
+      <input name="collect_times" value="{{ s.collect_times }}" required>
+      <span class="hint">Местное время через запятую, например «09:00, 14:00, 20:00». К каждому случайно ±10 минут.
+        Между сборами бот только отвечает на кнопки в Telegram.</span>
+    </label>
+  </section>
+  <section>
+    <h2>Инструкции нейронке</h2>
+    <label class="field"><span>Оценка лота</span>
+      <textarea name="llm_eval_prompt" rows="18">{{ s.llm_eval_prompt }}</textarea>
+      <span class="hint">Кто ты, что ищем, как считать выгоду. Формат ответа и цены рынка из базы добавляются в коде — их тут писать не нужно.</span>
+    </label>
+    <label class="field"><span>Переписка с продавцом</span>
+      <textarea name="llm_bargain_prompt" rows="5">{{ s.llm_bargain_prompt }}</textarea>
+      <span class="hint">Стиль сообщений. Жёсткие правила — без предоплаты, курьер только ramburs, без телефона и адреса, не выше потолка —
+        работают в коде поверх любого промпта, отключить их отсюда нельзя.</span>
+    </label>
+  </section>
+  <div class="save"><button class="btn primary">{{ icon('check') }}Сохранить</button></div>
 </form>
+<style>
+  main { max-width:860px; }
+  .settings { display:grid; gap:20px; }
+  .settings section { display:grid; gap:18px; padding:20px; background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); }
+  .cols { display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:18px; }
+  .unit { position:relative; display:flex; max-width:200px; }
+  .unit input { width:100%; padding-right:56px; }
+  .unit i { position:absolute; right:12px; top:8px; font-style:normal; color:var(--muted); font-size:var(--fs-sm); pointer-events:none; }
+  .settings textarea { width:100%; }
+  .save { position:sticky; bottom:0; padding:12px 0; background:linear-gradient(transparent, var(--bg) 30%); }
+</style>
 {% endblock %}

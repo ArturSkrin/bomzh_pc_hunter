@@ -21,7 +21,7 @@ def client(tmp_path):
 
 def test_listings_page_escapes(client):
     html = client.get("/").get_data(as_text=True)
-    assert "RTX 3060 &lt;b&gt;" in html and "900 lei" in html
+    assert "RTX 3060 &lt;b&gt;" in html and ">900</span> lei" in html
 
 
 def test_queries_crud(client):

@@ -3,67 +3,199 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark light">
 <title>Барахолка — {% block title %}{% endblock %}</title>
 <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
 <style>
-  :root { --bg:#f6f6f4; --card:#fff; --fg:#1d1d1b; --muted:#6b6b66; --line:#e2e2dc; --accent:#2f6f4f; --warn:#a33; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#161615; --card:#1f1f1d; --fg:#ecece8; --muted:#9a9a93; --line:#33332f; --accent:#6fbf94; --warn:#e07070; }
+  /* Тёмная по умолчанию: смотрю вечером с ноута. Светлая — если так в системе. Акцент — только «выгодно» и главные действия */
+  :root {
+    --bg:#0b1020; --surface:#121a2c; --surface-2:#18223a; --raised:#1e2a45; --line:#25314d; --line-strong:#34425f;
+    --fg:#e8ecf4; --fg-2:#b6c0d2; --muted:#8693ab;
+    --accent:#2fd27a; --accent-ink:#04140b; --accent-soft:rgb(47 210 122 / .14);
+    --warn:#f5a524; --warn-soft:rgb(245 165 36 / .14); --danger:#f2555a; --danger-soft:rgb(242 85 90 / .14);
+    --info:#6aa8ff; --info-soft:rgb(106 168 255 / .14);
+    --ring:#8fb8ff; --shadow:0 8px 24px rgb(0 0 0 / .35), 0 2px 6px rgb(0 0 0 / .25);
+    --r-sm:6px; --r:8px; --r-lg:12px;
+    --fs-xs:12px; --fs-sm:13px; --fs:14px; --fs-md:16px; --fs-lg:19px; --fs-xl:23px;
   }
-  * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.45 system-ui, sans-serif; }
-  nav { display:flex; flex-wrap:wrap; gap:6px 18px; align-items:center; padding:12px 20px; border-bottom:1px solid var(--line); background:var(--card); }
-  nav b { margin-right:12px; }
-  nav .brand { display:inline-flex; align-items:center; gap:8px; }
-  nav a { color:var(--muted); text-decoration:none; }
-  nav a.on { color:var(--fg); font-weight:600; }
-  main { max-width:1200px; margin:0 auto; padding:20px; }
-  a { color:var(--accent); }
-  input, select, textarea, button { font:inherit; color:var(--fg); background:var(--card); border:1px solid var(--line); border-radius:6px; padding:6px 10px; }
-  input, select, textarea { max-width:100%; }
-  button { cursor:pointer; }
-  button.primary { background:var(--accent); color:var(--bg); border-color:var(--accent); }
-  table { width:100%; border-collapse:collapse; background:var(--card); border:1px solid var(--line); border-radius:8px; overflow:hidden; }
-  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
-  th { font-weight:600; color:var(--muted); font-size:13px; }
-  .muted { color:var(--muted); font-size:13px; }
-  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
-  .pill { display:inline-block; padding:1px 8px; border-radius:99px; border:1px solid var(--line); font-size:12px; color:var(--muted); }
-  .free { color:var(--accent); font-weight:700; }
-  .err { color:var(--warn); }
-  img.thumb { width:96px; height:72px; object-fit:cover; border-radius:4px; background:var(--line); }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg:#f4f6fa; --surface:#ffffff; --surface-2:#eef1f6; --raised:#ffffff; --line:#dde2ec; --line-strong:#c5cddb;
+      --fg:#101828; --fg-2:#3a4558; --muted:#5d6879;
+      --accent:#13804a; --accent-ink:#ffffff; --accent-soft:rgb(19 128 74 / .1);
+      --warn:#a85f00; --warn-soft:rgb(168 95 0 / .1); --danger:#c3262c; --danger-soft:rgb(195 38 44 / .08);
+      --info:#1d5fd1; --info-soft:rgb(29 95 209 / .08);
+      --ring:#1d5fd1; --shadow:0 8px 24px rgb(16 24 40 / .12), 0 2px 6px rgb(16 24 40 / .08);
+    }
+  }
+  * { box-sizing:border-box; }
+  html { scrollbar-color:var(--line-strong) transparent; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:var(--fs)/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+         -webkit-font-smoothing:antialiased; caret-color:var(--accent); }
+  ::selection { background:var(--accent-soft); color:var(--fg); }
+  :focus-visible { outline:2px solid var(--ring); outline-offset:2px; }
+  a { color:var(--accent); text-underline-offset:3px; }
+  h1, h2, h3 { margin:0; line-height:1.25; text-wrap:balance; }
+  h1 { font-size:var(--fs-xl); font-weight:650; letter-spacing:-0.01em; }
+  h2 { font-size:var(--fs-lg); font-weight:650; }
+  h3 { font-size:var(--fs-md); font-weight:600; }
+  .num { font-variant-numeric:tabular-nums; }
+  .muted { color:var(--muted); font-size:var(--fs-sm); }
+  .err { color:var(--danger); }
+  .icon { width:16px; height:16px; flex:none; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  .icon.lg { width:18px; height:18px; }
+
+  /* Шапка */
+  .top { position:sticky; top:0; z-index:10; background:color-mix(in srgb, var(--surface) 92%, transparent);
+         backdrop-filter:saturate(1.4) blur(8px); border-bottom:1px solid var(--line); }
+  .top-in { max-width:1320px; margin:0 auto; padding:0 20px; height:56px; display:flex; align-items:center; gap:4px; }
+  .brand { display:inline-flex; align-items:center; gap:10px; font-weight:700; font-size:var(--fs-md); color:var(--fg);
+           text-decoration:none; margin-right:20px; }
+  .top nav { display:flex; gap:2px; overflow-x:auto; scrollbar-width:none; }
+  .top nav a { display:inline-flex; align-items:center; gap:8px; height:36px; padding:0 12px; border-radius:var(--r);
+               color:var(--muted); text-decoration:none; font-weight:500; white-space:nowrap; transition:background .15s, color .15s; }
+  .top nav a:hover { color:var(--fg); background:var(--surface-2); }
+  .top nav a[aria-current="page"] { color:var(--fg); background:var(--surface-2); }
+  .top nav a[aria-current="page"] .icon { color:var(--accent); }
+  main { max-width:1320px; margin:0 auto; padding:24px 20px 96px; }
+  .page-head { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-bottom:16px; }
+  .page-head p { margin:4px 0 0; }
+
+  /* Поля и кнопки — одна форма на весь сайт */
+  input, select, textarea, button { font:inherit; color:var(--fg); }
+  input, select, textarea { background:var(--surface); border:1px solid var(--line-strong); border-radius:var(--r);
+                            padding:0 12px; height:36px; max-width:100%; transition:border-color .15s, box-shadow .15s; }
+  textarea { height:auto; padding:10px 12px; line-height:1.5; resize:vertical; }
+  input::placeholder, textarea::placeholder { color:var(--muted); }
+  input:hover, select:hover, textarea:hover { border-color:color-mix(in srgb, var(--line-strong) 60%, var(--fg) 20%); }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--ring); box-shadow:0 0 0 3px color-mix(in srgb, var(--ring) 25%, transparent); }
+  select { padding-right:32px; appearance:none; cursor:pointer;
+           background:var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238693ab' stroke-width='2' stroke-linecap='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 10px center / 14px; }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; height:36px; padding:0 14px; border-radius:var(--r);
+         border:1px solid var(--line-strong); background:var(--surface-2); color:var(--fg); font-weight:500; cursor:pointer;
+         text-decoration:none; white-space:nowrap; transition:background .15s, border-color .15s, color .15s, transform .1s; }
+  .btn:hover { background:var(--raised); border-color:color-mix(in srgb, var(--line-strong) 50%, var(--fg) 25%); }
+  .btn:active { transform:translateY(1px); }
+  .btn:disabled, .btn[aria-disabled="true"] { opacity:.5; cursor:not-allowed; transform:none; }
+  .btn.primary { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600; }
+  .btn.primary:hover { background:color-mix(in srgb, var(--accent) 88%, var(--fg)); }
+  .btn.ghost { background:transparent; border-color:transparent; color:var(--fg-2); }
+  .btn.ghost:hover { background:var(--surface-2); color:var(--fg); }
+  .btn.danger:hover { color:var(--danger); border-color:color-mix(in srgb, var(--danger) 50%, transparent); background:var(--danger-soft); }
+  .btn.sm { height:30px; padding:0 10px; font-size:var(--fs-sm); gap:6px; }
+  .btn.icon-only { width:36px; padding:0; }
+  .btn.icon-only.sm { width:30px; }
   form.inline { display:inline; }
-  th a.sort { color:inherit; text-decoration:none; }
-  .score { display:inline-block; padding:1px 7px; border-radius:99px; font-size:13px; font-weight:700; background:var(--line); }
-  .score.s7, .score.s8, .score.s9, .score.s10 { background:var(--accent); color:var(--bg); }
-  .score.s0, .score.s1, .score.s2, .score.s3 { color:var(--muted); font-weight:400; }
-  th a.sort.on { color:var(--fg); }
-  .mkt { font-size:12px; color:var(--muted); white-space:nowrap; }
-  .mkt b { color:var(--fg); }
+  .field { display:grid; gap:6px; }
+  .field > span { font-weight:600; }
+  .field .hint { color:var(--muted); font-size:var(--fs-sm); max-width:70ch; }
+
+  /* Метки */
+  .pill { display:inline-flex; align-items:center; gap:6px; height:22px; padding:0 8px; border-radius:99px; font-size:var(--fs-xs);
+          font-weight:500; background:var(--surface-2); color:var(--fg-2); white-space:nowrap; }
+  .pill::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; opacity:.8; }
+  .pill.st-sent, .pill.st-scored { color:var(--info); background:var(--info-soft); }
+  .pill.st-negotiating { color:var(--accent); background:var(--accent-soft); }
+  .pill.st-skipped, .pill.st-stale, .pill.st-rejected, .pill.st-rejected_llm { color:var(--muted); }
+  .pill.st-send_failed { color:var(--danger); background:var(--danger-soft); }
+  .pill.st-search, .pill.st-new { color:var(--warn); background:var(--warn-soft); }
+  .score { display:inline-grid; place-items:center; min-width:38px; height:24px; padding:0 6px; border-radius:var(--r-sm);
+           font-size:var(--fs-sm); font-weight:700; font-variant-numeric:tabular-nums; background:var(--surface-2); color:var(--fg-2); }
+  .score.s7, .score.s8 { background:var(--accent-soft); color:var(--accent); }
+  .score.s9, .score.s10 { background:var(--accent); color:var(--accent-ink); }
+  .score.s0, .score.s1, .score.s2, .score.s3 { color:var(--muted); background:transparent; box-shadow:inset 0 0 0 1px var(--line); }
+  .free { color:var(--accent); font-weight:700; }
+
+  /* Шкала рынка: мин — медиана — макс по такой же модели, точка — этот лот */
+  .meter { position:relative; height:6px; border-radius:99px; background:var(--surface-2); margin:8px 0 4px; min-width:96px; }
+  .meter i { position:absolute; top:-2px; width:2px; height:10px; border-radius:1px; background:var(--muted); }
+  .meter b { position:absolute; top:50%; width:12px; height:12px; margin:-6px 0 0 -6px; border-radius:50%;
+             background:var(--fg-2); box-shadow:0 0 0 3px var(--surface); }
+  .meter.good b { background:var(--accent); }
+  .meter.bad b { background:var(--danger); }
+  .mkt { font-size:var(--fs-xs); color:var(--muted); white-space:nowrap; font-variant-numeric:tabular-nums; }
   .mkt .down { color:var(--accent); font-weight:700; }
-  .mkt .up { color:var(--warn); }
-  .seg { display:inline-flex; border:1px solid var(--line); border-radius:6px; overflow:hidden; }
-  .seg a { padding:6px 12px; text-decoration:none; color:var(--muted); background:var(--card); }
-  .seg a.on { background:var(--accent); color:var(--bg); }
-  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:14px; }
-  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; overflow:hidden; display:flex; flex-direction:column; }
-  /* overflow:hidden — иначе высокое фото растягивает карточку мимо 4:3 */
-  .card .ph { display:flex; align-items:center; justify-content:center; aspect-ratio:4/3; overflow:hidden; background:var(--line); }
-  .card .ph img { width:100%; height:100%; object-fit:cover; }
-  .card .cb { padding:10px 12px; display:flex; flex-direction:column; gap:4px; flex:1; }
-  .card .price { font-size:18px; font-weight:700; }
-  .card .t { color:var(--fg); text-decoration:none; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
-  .card .foot { margin-top:auto; padding-top:6px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .mkt .up { color:var(--danger); font-weight:600; }
+
+  /* Таблицы */
+  .table-wrap { background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); overflow:auto; }
+  table { width:100%; border-collapse:collapse; }
+  th, td { text-align:left; padding:12px 14px; border-bottom:1px solid var(--line); vertical-align:middle; }
+  tr:last-child td { border-bottom:0; }
+  th { position:sticky; top:0; z-index:1; background:var(--surface); font-weight:600; color:var(--muted); font-size:var(--fs-xs);
+       text-transform:uppercase; letter-spacing:.04em; padding-top:10px; padding-bottom:10px; white-space:nowrap; }
+  tbody tr { transition:background .12s; }
+  tbody tr:hover { background:var(--surface-2); }
+  th a.sort { color:inherit; text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
+  th a.sort:hover, th a.sort.on { color:var(--fg); }
+  img.thumb { display:block; width:72px; height:54px; object-fit:cover; border-radius:var(--r-sm); background:var(--surface-2); }
+  .ph-empty { display:grid; place-items:center; width:72px; height:54px; border-radius:var(--r-sm); background:var(--surface-2); color:var(--muted); }
+
+  /* Сегментный переключатель */
+  .seg { display:inline-flex; padding:3px; gap:2px; border-radius:var(--r); background:var(--surface-2); border:1px solid var(--line); }
+  .seg a { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 10px; border-radius:var(--r-sm);
+           text-decoration:none; color:var(--muted); font-weight:500; font-size:var(--fs-sm); }
+  .seg a:hover { color:var(--fg); }
+  .seg a.on { background:var(--surface); color:var(--fg); box-shadow:0 1px 2px rgb(0 0 0 / .2); }
+
+  .notice { display:flex; gap:10px; align-items:flex-start; padding:12px 14px; border-radius:var(--r); margin-bottom:16px;
+            background:var(--surface-2); border:1px solid var(--line); }
+  .notice.ok { background:var(--accent-soft); border-color:transparent; }
+  .notice.bad { background:var(--danger-soft); border-color:transparent; color:var(--danger); }
+  .empty { display:grid; justify-items:center; gap:6px; text-align:center; padding:48px 16px; color:var(--muted); }
+  .empty b { color:var(--fg); font-size:var(--fs-md); }
+
+  @media (max-width: 640px) {
+    .top-in { padding:0 12px; }
+    .brand span { display:none; }
+    .brand { margin-right:8px; }
+    .top nav a span { display:none; }
+    main { padding:16px 12px 96px; }
+  }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; animation:none !important; } }
 </style>
 </head>
+{% from "_ui.html" import icon %}
 <body>
-<nav>
-  <b class="brand"><img src="{{ url_for('static', filename='favicon.svg') }}" alt="" width="20" height="20"> Барахолка</b>
-  <a href="{{ url_for('search') }}" class="{{ 'on' if request.endpoint == 'search' }}">Поиск</a>
-  <a href="{{ url_for('listings') }}" class="{{ 'on' if request.endpoint == 'listings' }}">Объявления</a>
-  <a href="{{ url_for('queries') }}" class="{{ 'on' if request.endpoint == 'queries' }}">Поисковые запросы</a>
-  <a href="{{ url_for('settings') }}" class="{{ 'on' if request.endpoint == 'settings' }}">Настройки и LLM</a>
-</nav>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  {# Иконки — один набор, одна толщина линии (24×24, stroke) #}
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></symbol>
+  <symbol id="i-query" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-11.6 7.1L4 20l1-4.2A8 8 0 1 1 20 12Z"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/></symbol>
+  <symbol id="i-bookmark" viewBox="0 0 24 24"><path d="M6 4h12v17l-6-4-6 4Z"/></symbol>
+  <symbol id="i-skip" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a1 1 0 0 1 1-1h10"/></symbol>
+  <symbol id="i-send" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-bot" viewBox="0 0 24 24"><rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6v.6M12 17h.01"/></symbol>
+  <symbol id="i-tag" viewBox="0 0 24 24"><path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9Z"/><circle cx="8" cy="8" r="1.5"/></symbol>
+  <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21Z"/><circle cx="12" cy="9.5" r="2.5"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 2.4 17.5A2 2 0 0 0 4.1 20.5h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></symbol>
+  <symbol id="i-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5M11 6l-6 6 6 6"/></symbol>
+  <symbol id="i-sort-desc" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="i-sort-asc" viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14.8-3.5L4 9M4 4v5h5M4 13a8 8 0 0 0 14.8 3.5L20 15M20 20v-5h-5"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.4 6.4a8 8 0 1 0 11.2 0"/></symbol>
+</svg>
+<header class="top">
+  <div class="top-in">
+    <a class="brand" href="{{ url_for('listings') }}"><img src="{{ url_for('static', filename='favicon.svg') }}" alt="" width="24" height="24"><span>Барахолка</span></a>
+    <nav aria-label="Разделы">
+      {% for endpoint, ico, label in [('listings', 'list', 'Объявления'), ('queries', 'query', 'Поисковые запросы'), ('settings', 'settings', 'Настройки и LLM')] %}
+      <a href="{{ url_for(endpoint) }}" {% if request.endpoint == endpoint or (endpoint == 'listings' and request.endpoint == 'listing') %}aria-current="page"{% endif %}>{{ icon(ico) }}<span>{{ label }}</span></a>
+      {% endfor %}
+    </nav>
+  </div>
+</header>
 <main>{% block body %}{% endblock %}</main>
 </body>
 </html>

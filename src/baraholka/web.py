@@ -2,6 +2,7 @@
 
 import json
 import logging
+import math
 from urllib.parse import urlparse
 
 from flask import Flask, abort, g, jsonify, make_response, redirect, render_template, request, url_for
@@ -66,6 +67,21 @@ def listings_source(search) -> tuple[str, list]:
     return (f"""(SELECT {', '.join('l.' + c for c in cols)}, si.score AS llm_score,
                  (CASE si.verdict WHEN 'match' THEN '✅ подходит' ELSE '❔ уточнить' END) || ' — ' || si.why AS llm_comment
                  FROM listings l JOIN search_items si ON si.listing_id = l.id WHERE si.search_id = ?)""", [search["id"]])
+
+
+@app.template_global()
+def meter(price, m) -> dict | None:
+    """Позиции для шкалы рынка в процентах: медиана и этот лот между мин и макс. Шкала логарифмическая —
+    иначе один Mac mini за 5555 в «ssd 2tb» сплющит всё остальное к левому краю."""
+    if price is None or not m or m["max"] <= m["min"]:
+        return None
+    lo, hi = math.log(m["min"]), math.log(m["max"])
+
+    def pos(v):
+        return round(max(0.0, min(100.0, (math.log(max(v, 1)) - lo) / (hi - lo) * 100)), 1)
+
+    vs = vs_median(price, m)
+    return {"mid": pos(m["median"]), "dot": pos(price), "cls": "good" if vs is not None and vs <= -15 else ("bad" if vs and vs > 0 else "")}
 
 
 @app.template_global()

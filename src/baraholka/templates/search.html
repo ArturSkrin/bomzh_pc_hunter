@@ -1,11 +1,14 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon %}
 {% block title %}Поиск{% endblock %}
 {% block body %}
+<div class="page-head"><div><h1>История поиска</h1>
+  <p class="muted">Удобнее искать из чата на странице объявлений: «найди …» — результат сразу отдельным списком.</p></div></div>
 <form method="post" id="ask" style="display:grid; gap:8px; margin-bottom:24px">
   <textarea name="request" rows="4" required style="width:100%"
     placeholder="Например: монитор 27 дюймов, QHD, обязательно регулировка по высоте, желательно изогнутый, до 1000 лей"></textarea>
-  <div class="row" style="margin:0">
-    <button class="primary" id="go">Искать</button>
+  <div style="display:flex; gap:12px; align-items:center">
+    <button class="btn primary" id="go">{{ icon('query') }}Искать</button>
     <span class="muted" id="wait" hidden>Ищу по сайтам и отбираю… обычно около минуты, не закрывай страницу.</span>
   </div>
 </form>
@@ -17,21 +20,21 @@
 </script>
 
 {% if error %}
-<p class="err">⚠️ Поиск не получился ({{ error }}).
+<p class="err">Поиск не получился ({{ error }}).
   {% if 'Auth' in error %}Похоже, не задан или неверный OPENAI_API_KEY в .env.{% else %}Подробности — в логе бота.{% endif %}</p>
 {% endif %}
 
 {% for s in searches %}
 <section id="s{{ s.id }}" style="margin-bottom:28px">
-  <div style="background:var(--card); border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin-bottom:8px">
-    <div>🧑 {{ s.request }}</div>
+  <div style="background:var(--surface); border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin-bottom:8px">
+    <div><b>{{ s.request }}</b></div>
     <div class="muted" style="margin-top:6px">
-      🤖 {{ s.plan.summary }} · до {{ s.plan.max_price or '—' }} lei · проверено {{ s.candidates }} объявл. · {{ s.created_at }} UTC<br>
+      {{ s.plan.summary }} · до {{ s.plan.max_price or '—' }} lei · проверено {{ s.candidates }} объявл. · {{ s.created_at }} UTC<br>
       обязательно: {{ s.plan.must|join(', ') or '—' }} · желательно: {{ s.plan.nice|join(', ') or '—' }}<br>
       искал: {{ s.plan.queries|join(' · ') }}
     </div>
   </div>
-  <table>
+  <div class="table-wrap"><table>
     {% for r in s.results %}
     <tr>
       <td style="width:110px">{% if r.thumb %}<img class="thumb" src="{{ r.thumb }}" loading="lazy" alt="">{% endif %}</td>
@@ -42,14 +45,14 @@
       <td style="white-space:nowrap">{% if r.is_free %}<span class="free">бесплатно</span>{% elif r.price_ron is not none %}{{ r.price_ron|int }} lei{% endif %}</td>
       <td>{{ r.city }}</td>
       <td style="white-space:nowrap">
-        <span class="pill">{{ '✅ подходит' if r.verdict == 'match' else '❔ уточнить' }}</span>
+        <span class="pill {{ 'st-negotiating' if r.verdict == 'match' else 'st-new' }}">{{ 'подходит' if r.verdict == 'match' else 'уточнить' }}</span>
         <span class="muted">{{ r.score }}/10</span>
       </td>
     </tr>
     {% else %}
     <tr><td class="muted">Ничего подходящего не нашлось.</td></tr>
     {% endfor %}
-  </table>
+  </table></div>
 </section>
 {% else %}
 <p class="muted">Пока пусто. Опиши, что ищешь, — нейронка сама составит запросы и отберёт объявления.</p>

@@ -1,0 +1,24 @@
+{# Общие компоненты: одна форма цены, оценки, статуса и рынка на всех страницах #}
+{% macro icon(name, cls='') %}<svg class="icon {{ cls }}" aria-hidden="true"><use href="#i-{{ name }}"/></svg>{% endmacro %}
+
+{% macro price(l) -%}
+  {% if l.is_free %}<span class="free">бесплатно</span>{% elif l.price_ron is not none %}<span class="num">{{ l.price_ron|int }}</span> lei{% else %}<span class="muted">без цены</span>{% endif %}
+{%- endmacro %}
+
+{% macro score(l) -%}
+  {% if l.llm_score is not none %}<span class="score s{{ (l.llm_score // 1)|int }}" title="Оценка выгодности нейронкой">{{ l.llm_score|round|int }}</span>{% endif %}
+{%- endmacro %}
+
+{% macro status(l, statuses) -%}
+  <span class="pill st-{{ l.status }}">{{ statuses.get(l.status, l.status) }}</span>
+{%- endmacro %}
+
+{# Шкала: мин — медиана — макс такой же модели в базе; точка — этот лот #}
+{% macro market(l, long=False) -%}
+  {% if l.market %}{% set m = meter(l.price_ron, l.market) %}
+  <div class="mkt-box" title="Такая же модель в базе за 60 дней: {{ l.market.n }} объявл., от {{ l.market.min }} до {{ l.market.max }} lei, медиана {{ l.market.median }}">
+    {% if m %}<div class="meter {{ m.cls }}" role="img" aria-label="Цена относительно рынка"><i style="left:{{ m.mid }}%"></i><b style="left:{{ m.dot }}%"></b></div>{% endif %}
+    <div class="mkt">{% if l.vs is not none %}<span class="{{ 'down' if l.vs <= -15 else ('up' if l.vs > 0 else '') }}">{{ '%+d'|format(l.vs) }}%</span> к {% endif %}медиане {{ l.market.median }}{% if long %} lei · от {{ l.market.min }} до {{ l.market.max }} · {{ l.market.n }} шт. за 60 дней{% else %} · {{ l.market.n }} шт.{% endif %}</div>
+  </div>
+  {% endif %}
+{%- endmacro %}
