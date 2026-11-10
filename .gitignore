@@ -5,3 +5,6 @@ __pycache__/
 data/*.db*
 .pytest_cache/
 *.egg-info/
+
+# Скиллы Claude Code — локально у меня, не часть бота
+.claude/
