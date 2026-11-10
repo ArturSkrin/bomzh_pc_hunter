@@ -201,7 +201,7 @@
   h1 #count { font-size:var(--fs); font-weight:500; margin-left:6px; letter-spacing:0; }
 
   /* Таблица лотов */
-  .lots .c-ph { width:88px; padding-right:0; }
+  .lots .c-ph { width:128px; padding-right:0; }
   .lots .c-score { width:84px; }
   .lots .c-price { width:200px; }
   .lots .c-status { width:124px; }
@@ -276,10 +276,11 @@
     .table-wrap { background:transparent; border:0; overflow:visible; }
     .lots thead { display:none; }
     .lots, .lots tbody { display:block; }
-    .lots tr { display:grid; grid-template-columns:72px 1fr auto; gap:4px 12px; padding:12px; margin-bottom:8px;
+    .lots tr { display:grid; grid-template-columns:96px 1fr auto; gap:4px 12px; padding:12px; margin-bottom:8px;
                background:var(--surface); border:1px solid var(--line); border-radius:var(--r-lg); }
     .lots td { display:block; padding:0; border:0; }
     .lots td.c-ph { grid-row:1 / span 3; width:auto; }
+    .lots img.thumb, .lots .ph-empty { width:96px; height:72px; }
     .lots td.c-title { grid-column:2 / span 2; min-width:0; }
     .lots td.c-score { grid-column:3; grid-row:2; width:auto; }
     .lots td.c-price { grid-column:2; grid-row:2; width:auto; }

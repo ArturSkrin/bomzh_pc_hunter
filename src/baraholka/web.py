@@ -131,7 +131,7 @@ def listings():
     for r in rows:
         photo = (json.loads(r["photos"]) or [""])[0]
         m = market.get(r["id"])
-        lots.append(dict(r, photo=photo, thumb=photo.replace("800x600", "200x150"),
+        lots.append(dict(r, photo=photo, thumb=photo.replace("800x600", "400x300"),
                          market=m, vs=vs_median(r["price_ron"], m)))
     base_params = [search["id"]] if search else []
     counts = dict(conn().execute(f"SELECT status, count(*) FROM {table} GROUP BY status", base_params).fetchall())
