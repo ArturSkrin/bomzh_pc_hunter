@@ -21,16 +21,27 @@ JITTER_MIN = 10  # каждое время сбора ± столько мину
 log = logging.getLogger("baraholka")
 
 
+MAX_FAILS_IN_ROW = 2  # столько ошибок подряд — площадка блокирует или лежит: оставляем её до следующего сбора
+
+
 def collect_once(settings, conn) -> int:
     new = 0
     max_price = float(db.get_setting(conn, "max_price_ron"))
     with httpx.Client(timeout=20, headers={"User-Agent": "Mozilla/5.0"}) as client:
         for name, fetch in SOURCES.items():
+            fails = 0
             for query in db.enabled_queries(conn):
                 try:
                     lots = fetch(client, query)
-                except Exception:
-                    log.exception("%s: %r упал", name, query)
+                    fails = 0
+                except Exception as e:
+                    fails += 1
+                    log.warning("%s: %r не получилось: %s", name, query, str(e)[:200])
+                    if fails >= MAX_FAILS_IN_ROW:
+                        # Блок не пробиваем и не долбим: ждём следующего сбора по расписанию
+                        log.warning("%s: %d ошибки подряд — пропускаю площадку до следующего сбора", name, fails)
+                        break
+                    time.sleep(settings.request_delay_sec)  # пауза и после ошибки — иначе очередь запросов летит разом
                     continue
                 for lot in lots:
                     lot_id = db.insert_if_new(conn, lot)

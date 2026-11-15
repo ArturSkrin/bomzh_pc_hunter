@@ -37,7 +37,8 @@ def parse(html: str) -> list[Listing]:
     flow = "".join(json.loads(f'"{s}"') for s in re.findall(r'self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', html))
     i = flow.find('"items":{"items":[')
     if i < 0:
-        raise RuntimeError("vinted: нет items в странице каталога — сменили вёрстку")
+        # Чаще всего это их защита (DataDome) отдала пустую страницу; если не проходит неделями — сменили вёрстку
+        raise RuntimeError("vinted: на странице каталога нет товаров — защита отдала пустую страницу или сменили вёрстку")
     items, _ = json.JSONDecoder().raw_decode(flow, i + len('"items":{"items":'))
     seen_now = datetime.now(timezone.utc)
     lots = []
