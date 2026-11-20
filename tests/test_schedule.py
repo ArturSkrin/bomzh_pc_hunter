@@ -42,3 +42,7 @@ def test_collect_skips_blocked_source_and_keeps_pause(tmp_path, monkeypatch):
     assert [c for c in calls if c[0] == "olx"] == [("olx", q) for q in queries[:2]]  # после 2 ошибок — стоп
     assert len([c for c in calls if c[0] == "vinted"]) == len(queries)  # другие площадки не страдают
     assert sleeps[0] == 3  # после первой ошибки пауза, а не следующий запрос сразу
+    health = {r["source"]: r for r in conn.execute("SELECT * FROM source_health")}
+    assert health["olx"]["failed"] == 2 and "403" in health["olx"]["last_error"]
+    assert health["vinted"]["succeeded"] == len(queries)
+    assert health["vinted"]["failed"] == health["vinted"]["new_lots"] == 0

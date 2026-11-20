@@ -16,17 +16,11 @@ from ..models import Listing
 BASE = "https://www.vinted.ro"
 NEWEST = 24  # даты нет — «свежесть» = первая встреча, поэтому берём только верх выдачи по новизне
 
-_http = httpx.Client(timeout=30, follow_redirects=True, headers={
-    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36",
-    "Accept-Language": "ro-RO,ro;q=0.9",
-})
-
-
 def fetch(client: httpx.Client, query: str, max_price: float | None = None, cheapest: bool = False) -> list[Listing]:
     params = {"search_text": query, "order": "price_low_to_high" if cheapest else "newest_first"}
     if max_price is not None:
         params["price_to"] = int(max_price)
-    r = _http.get(f"{BASE}/catalog", params=params)
+    r = client.get(f"{BASE}/catalog", params=params, follow_redirects=True)
     r.raise_for_status()
     lots = parse(r.text)[:NEWEST]
     # price_to на их стороне не проверен до конца — дублируем фильтр сами

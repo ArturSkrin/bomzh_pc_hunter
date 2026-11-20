@@ -1,97 +1,43 @@
-"""OLX.ro через внутренний JSON API (тот же, что дёргает их фронт).
-
-Разведка 2026-10-31: GET /api/v1/offers/ — query, category_id (2100 = вся «Componente laptop-PC»
-с подкатегориями, 2130 видеокарты, 1886 ноутбуки), sort_by=created_at:desc, limit до 40,
-filter_float_price:to=0 — только «Gratuit». Первыми идут платные топ-объявления, их отсекает дедуп.
-
-Голый httpx CloudFront режет 403, поэтому запросы идут из настоящего Chromium (Playwright)
-со страницы olx.ro — как у их фронта. Без логина, без маскировки: при блоке/капче просто падаем.
-"""
+"""OLX.ro публикует данные объявлений в HTML поисковой выдачи."""
 
 import json
 import re
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from urllib.parse import urlencode
+from urllib.parse import quote
 
 import httpx
-from playwright.sync_api import sync_playwright
 
 from ..models import Listing
 
-API = "https://www.olx.ro/api/v1/offers/"
-
-_pw = _browser = _page = None
-# Playwright sync привязан к потоку, а зовут нас и сборщик, и веб — весь браузер живёт в одном потоке
-_browser_thread = ThreadPoolExecutor(max_workers=1)
-
-
-def _browser_page():
-    global _pw, _browser, _page
-    if _page is None:
-        _pw = sync_playwright().start()
-        _browser = _pw.chromium.launch()
-        _page = _browser.new_page(locale="ro-RO")
-        _page.goto("https://www.olx.ro/", wait_until="domcontentloaded")
-    return _page
-
-
-def close() -> None:
-    """Закрыть браузер при остановке бота. По Ctrl+C Chromium получает тот же сигнал и может уже лежать —
-    тогда закрывать нечего, ошибки глотаем."""
-    def _close():
-        global _pw, _browser, _page
-        for step in (lambda: _browser and _browser.close(), lambda: _pw and _pw.stop()):
-            try:
-                step()
-            except Exception:
-                pass
-        _pw = _browser = _page = None
-
-    try:
-        _browser_thread.submit(_close).result(timeout=10)
-    except Exception:
-        pass
-    _browser_thread.shutdown(wait=False, cancel_futures=True)
-
 
 def fetch(client: httpx.Client, query: str, max_price: float | None = None, cheapest: bool = False) -> list[Listing]:
-    return _browser_thread.submit(_fetch, query, max_price, cheapest).result(timeout=120)
-
-
-def _fetch(query: str, max_price: float | None, cheapest: bool = False) -> list[Listing]:
-    # shortcut: только первая страница (40 свежих или дешёвых), хватает при опросе раз в 10–15 мин
-    sort = "filter_float_price:asc" if cheapest else "created_at:desc"
-    params = {"query": query, "sort_by": sort, "limit": 40}
+    slug = quote("-".join(query.split()), safe="")
+    params = {"search[order]": "filter_float_price:asc" if cheapest else "created_at:desc"}
     if max_price is not None:
-        params["filter_float_price:to"] = int(max_price)
-    url = API + "?" + urlencode(params)
-    res = _browser_page().evaluate(
-        "async (url) => { const r = await fetch(url, {headers: {Accept: 'application/json'}});"
-        " return {status: r.status, body: await r.text()}; }",
-        url,
-    )
-    if res["status"] != 200:
-        raise RuntimeError(f"OLX ответил {res['status']} — блок или капча, не пробиваемся")
-    return parse(json.loads(res["body"]))
+        params["search[filter_float_price:to]"] = str(max_price)
+    response = client.get(f"https://www.olx.ro/oferte/q-{slug}/", params=params, follow_redirects=True)
+    response.raise_for_status()
+    lots = parse(response.text)
+    return [lot for lot in lots if max_price is None or (lot.price_ron is not None and lot.price_ron <= max_price)]
 
 
-def parse(payload: dict) -> list[Listing]:
+def parse(html: str) -> list[Listing]:
+    marker = re.search(r"window\.__PRERENDERED_STATE__\s*=\s*", html)
+    if not marker:
+        raise ValueError("OLX: в HTML нет состояния каталога")
+    encoded, _ = json.JSONDecoder().raw_decode(html, marker.end())
+    ads = json.loads(encoded)["listing"]["listing"]["ads"]
     lots = []
-    for o in payload["data"]:
-        price = next((p["value"] for p in o["params"] if p["key"] == "price"), None)
-        is_free = bool(price) and price["type"] == "free"
+    for ad in ads:
+        price = ad.get("price") or {}
+        regular = price.get("regularPrice") or {}
+        free = bool(price.get("free"))
+        amount = regular.get("value") if regular.get("currencyCode") == "RON" else None
         lots.append(Listing(
-            source="olx",
-            external_id=str(o["id"]),
-            title=o["title"],
-            url=o["url"],
-            # «exchange» и объявления без цены — None
-            price_ron=price["value"] if price and price["type"] in ("price", "arranged", "free") else None,
-            is_free=is_free,
-            description=re.sub(r"<[^>]+>", "", o["description"]),
-            city=o["location"]["city"]["name"],
-            photos=[ph["link"].replace("{width}x{height}", "800x600") for ph in o["photos"]],
-            posted_at=datetime.fromisoformat(o["created_time"]),
+            source="olx", external_id=str(ad["id"]), title=ad["title"], url=ad["url"],
+            price_ron=0 if free else amount, is_free=free,
+            description=re.sub(r"<[^>]+>", "", ad.get("description") or ""),
+            city=(ad.get("location") or {}).get("cityName") or "",
+            photos=ad.get("photos") or [], posted_at=datetime.fromisoformat(ad["createdTime"]),
         ))
     return lots

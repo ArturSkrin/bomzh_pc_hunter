@@ -14,7 +14,7 @@ from . import agent, db, web
 from .config import load_settings
 from .filters import passes_rules
 from .market import for_listings
-from .sources import SOURCES, olx
+from .sources import SOURCES
 from .tg import Bot
 
 MAX_CARDS_PER_CYCLE = 20  # чтобы первый запуск не завалил чат
@@ -31,12 +31,17 @@ def collect_once(settings, conn) -> int:
     max_price = float(db.get_setting(conn, "max_price_ron"))
     with httpx.Client(timeout=20, headers={"User-Agent": "Mozilla/5.0"}) as client:
         for name, fetch in SOURCES.items():
-            fails = 0
+            fails = succeeded = failed = 0
+            last_error = None
+            before = new
             for query in db.enabled_queries(conn):
                 try:
                     lots = fetch(client, query)
+                    succeeded += 1
                     fails = 0
                 except Exception as e:
+                    failed += 1
+                    last_error = f"{type(e).__name__}: {e}"[:250]
                     fails += 1
                     log.warning("%s: %r не получилось: %s", name, query, str(e)[:200])
                     if fails >= MAX_FAILS_IN_ROW:
@@ -54,6 +59,13 @@ def collect_once(settings, conn) -> int:
                     conn.execute("UPDATE listings SET status = ? WHERE id = ?", (status, lot_id))
                 conn.commit()
                 time.sleep(settings.request_delay_sec)
+            conn.execute(
+                """INSERT OR REPLACE INTO source_health
+                   (source, checked_at, succeeded, failed, new_lots, last_error)
+                   VALUES (?, CURRENT_TIMESTAMP, ?, ?, ?, ?)""",
+                (name, succeeded, failed, new - before, last_error),
+            )
+            conn.commit()
     return new
 
 
@@ -130,7 +142,6 @@ def main() -> None:
     except KeyboardInterrupt:
         log.info("Останавливаюсь…")
     finally:
-        olx.close()
         if bot:
             bot.http.close()
         conn.close()

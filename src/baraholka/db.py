@@ -52,6 +52,15 @@ CREATE TABLE IF NOT EXISTS queries (
     enabled  INTEGER NOT NULL DEFAULT 1
 );
 
+CREATE TABLE IF NOT EXISTS source_health (
+    source TEXT PRIMARY KEY,
+    checked_at TEXT NOT NULL,
+    succeeded INTEGER NOT NULL,
+    failed INTEGER NOT NULL,
+    new_lots INTEGER NOT NULL,
+    last_error TEXT
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key    TEXT PRIMARY KEY,
     value  TEXT NOT NULL

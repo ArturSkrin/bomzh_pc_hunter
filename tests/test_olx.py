@@ -1,20 +1,17 @@
 import json
-from pathlib import Path
 
 from baraholka.sources.olx import parse
 
-PAYLOAD = json.loads((Path(__file__).parent / "fixtures/olx_offers.json").read_text())
 
-
-def test_parse_olx():
-    gpu, negotiable, free = parse(PAYLOAD)
-
-    assert gpu.external_id == "310635134"
-    assert gpu.price_ron == 1600 and not gpu.is_free
-    assert gpu.city == "Bucuresti"
-    assert "<br" not in gpu.description
-    assert gpu.photos == ["https://frankfurt.apollo.olxcdn.com:443/v1/files/pb72zjp6kr202-RO/image;s=800x600"]
-    assert gpu.posted_at.year == 2026
-
-    assert negotiable.price_ron == 5100  # type "arranged" = цена с торгом
+def test_parse_public_search():
+    ad = dict(id=123, title="Procesor", url="https://www.olx.ro/d/oferta/cpu",
+              description="CPU<br/>", location={"cityName": "Suceava"},
+              photos=["photo"], createdTime="2026-11-20T10:00:00+02:00")
+    prices = [{"regularPrice": {"value": 150, "currencyCode": "RON"}}, {"free": True}, {"exchange": True}]
+    state = {"listing": {"listing": {"ads": [dict(ad, price=p) for p in prices]}}}
+    html = "<script>window.__PRERENDERED_STATE__= " + json.dumps(json.dumps(state)) + ";</script>"
+    paid, free, exchange = parse(html)
+    assert paid.price_ron == 150 and paid.external_id == "123"
+    assert paid.city == "Suceava" and paid.description == "CPU" and paid.photos == ["photo"]
     assert free.is_free and free.price_ron == 0
+    assert exchange.price_ron is None

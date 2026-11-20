@@ -7,6 +7,16 @@
 {% if error %}<div class="notice bad" role="alert">{{ icon('alert') }}{{ error }}</div>{% endif %}
 <form method="post" class="settings">
   <section>
+    <h2>Последний автосбор по площадкам</h2>
+    {% for row in health %}
+    <div><strong>{{ row.source }}</strong> · {{ row.checked_at }} UTC<br>
+      {% if row.failed %}{{ 'Частичный сбой' if row.succeeded else 'Сбой' }}{% elif row.succeeded %}Работает{% else %}Нет включённых запросов{% endif %}
+      · успешных запросов {{ row.succeeded }} · ошибок {{ row.failed }} · новых лотов {{ row.new_lots }}
+      {% if row.last_error %}<div class="hint">{{ row.last_error }}</div>{% endif %}
+    </div>
+    {% else %}<p>Данные появятся после первого сбора.</p>{% endfor %}
+  </section>
+  <section>
     <h2>Сбор и фильтр</h2>
     <div class="cols">
       <label class="field"><span>Потолок цены</span>

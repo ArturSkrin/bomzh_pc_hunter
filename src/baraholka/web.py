@@ -354,7 +354,8 @@ def delete_query(qid):
 @app.get("/settings")
 def settings():
     values = dict(conn().execute("SELECT key, value FROM settings").fetchall())
-    return render_template("settings.html", s=values, saved=request.args.get("saved"), error=request.args.get("error"))
+    health = conn().execute("SELECT * FROM source_health ORDER BY source").fetchall()
+    return render_template("settings.html", s=values, health=health, saved=request.args.get("saved"), error=request.args.get("error"))
 
 
 @app.post("/settings")
