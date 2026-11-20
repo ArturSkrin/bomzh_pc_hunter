@@ -21,18 +21,38 @@ from ..models import Listing
 
 API = "https://www.olx.ro/api/v1/offers/"
 
-_page = None
+_pw = _browser = _page = None
 # Playwright sync привязан к потоку, а зовут нас и сборщик, и веб — весь браузер живёт в одном потоке
 _browser_thread = ThreadPoolExecutor(max_workers=1)
 
 
 def _browser_page():
-    global _page
+    global _pw, _browser, _page
     if _page is None:
-        browser = sync_playwright().start().chromium.launch()
-        _page = browser.new_page(locale="ro-RO")
+        _pw = sync_playwright().start()
+        _browser = _pw.chromium.launch()
+        _page = _browser.new_page(locale="ro-RO")
         _page.goto("https://www.olx.ro/", wait_until="domcontentloaded")
     return _page
+
+
+def close() -> None:
+    """Закрыть браузер при остановке бота. По Ctrl+C Chromium получает тот же сигнал и может уже лежать —
+    тогда закрывать нечего, ошибки глотаем."""
+    def _close():
+        global _pw, _browser, _page
+        for step in (lambda: _browser and _browser.close(), lambda: _pw and _pw.stop()):
+            try:
+                step()
+            except Exception:
+                pass
+        _pw = _browser = _page = None
+
+    try:
+        _browser_thread.submit(_close).result(timeout=10)
+    except Exception:
+        pass
+    _browser_thread.shutdown(wait=False, cancel_futures=True)
 
 
 def fetch(client: httpx.Client, query: str, max_price: float | None = None, cheapest: bool = False) -> list[Listing]:
@@ -52,7 +72,7 @@ def _fetch(query: str, max_price: float | None, cheapest: bool = False) -> list[
         url,
     )
     if res["status"] != 200:
-        raise RuntimeError(f"OLX ответил {res['status']} — блок или капча, не пробиваемся: {res['body'][:200]}")
+        raise RuntimeError(f"OLX ответил {res['status']} — блок или капча, не пробиваемся")
     return parse(json.loads(res["body"]))
 
 

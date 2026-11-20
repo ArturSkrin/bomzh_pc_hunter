@@ -2,17 +2,19 @@
 
 import logging
 import random
+import signal
 import threading
 import time
 from datetime import datetime, timedelta, timezone
 
 import httpx
+import litellm
 
 from . import agent, db, web
 from .config import load_settings
 from .filters import passes_rules
 from .market import for_listings
-from .sources import SOURCES
+from .sources import SOURCES, olx
 from .tg import Bot
 
 MAX_CARDS_PER_CYCLE = 20  # чтобы первый запуск не завалил чат
@@ -95,8 +97,22 @@ def next_run(times, now: datetime) -> datetime:
     raise AssertionError("недостижимо: завтрашние времена всегда позже now")
 
 
+def _stop(*_):
+    # systemd и kill шлют SIGTERM — завершаемся так же аккуратно, как по Ctrl+C
+    raise KeyboardInterrupt
+
+
+def quiet_libraries() -> None:
+    # Служебные INFO библиотек (LiteLLM пишет по две строки на каждый запрос к нейронке) — только предупреждения
+    litellm.suppress_debug_info = True
+    for name in ("LiteLLM", "LiteLLM Router", "LiteLLM Proxy", "httpx", "httpcore"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    quiet_libraries()
+    signal.signal(signal.SIGTERM, _stop)
     settings = load_settings()
     conn = db.connect(settings.db_path)
     panel = f"http://127.0.0.1:{settings.web_port}"
@@ -109,6 +125,19 @@ def main() -> None:
     def drafter(lid, goal, text):
         return agent.draft_reply(conn, settings.llm_model, lid, goal, text)
 
+    try:
+        run(settings, conn, bot, drafter)
+    except KeyboardInterrupt:
+        log.info("Останавливаюсь…")
+    finally:
+        olx.close()
+        if bot:
+            bot.http.close()
+        conn.close()
+        log.info("Остановлен")
+
+
+def run(settings, conn, bot, drafter) -> None:
     while True:
         try:
             log.info("Новых объявлений: %d", collect_once(settings, conn))
@@ -127,9 +156,11 @@ def main() -> None:
                 continue
             try:
                 bot.poll(conn, timeout=int(min(50, max(1, left))), drafter=drafter)
-            except httpx.HTTPError:
-                log.exception("Telegram недоступен")
-                time.sleep(5)
+            except httpx.TimeoutException:
+                continue  # long polling: ответа не дождались — просто спрашиваем снова
+            except httpx.HTTPError as e:
+                log.warning("Telegram недоступен (%s), повторю через 30 с", type(e).__name__)
+                time.sleep(30)
 
 
 if __name__ == "__main__":

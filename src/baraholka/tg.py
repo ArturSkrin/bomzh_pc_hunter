@@ -23,10 +23,10 @@ class Bot:
         self.chat_id = str(chat_id)
         self.panel_url = panel_url
         self.offset = 0
-        self.http = httpx.Client(timeout=60)
+        self.http = httpx.Client(timeout=30)
 
-    def call(self, method: str, **params):
-        r = self.http.post(self.url + method, json=params)
+    def call(self, method: str, http_timeout: float | None = None, **params):
+        r = self.http.post(self.url + method, json=params, **({"timeout": http_timeout} if http_timeout else {}))
         r.raise_for_status()
         return r.json()["result"]
 
@@ -46,7 +46,8 @@ class Bot:
 
     def poll(self, conn: sqlite3.Connection, timeout: int, drafter: Callable | None = None) -> None:
         """Ждёт кнопок и сообщений до timeout секунд. drafter(lid, goal, text) пишет черновик."""
-        for upd in self.call("getUpdates", offset=self.offset, timeout=timeout,
+        # Telegram держит запрос до timeout секунд — наш таймаут с запасом, иначе ложная «ошибка» при медленной сети
+        for upd in self.call("getUpdates", http_timeout=timeout + 20, offset=self.offset, timeout=timeout,
                              allowed_updates=["callback_query", "message"]):
             self.offset = upd["update_id"] + 1
             q, msg = upd.get("callback_query"), upd.get("message")
